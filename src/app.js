@@ -89,8 +89,8 @@ export function createApp() {
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         styleSrcAttr: ["'unsafe-inline'"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        scriptSrc: ["'self'"],
-        connectSrc: ["'self'"],
+        scriptSrc: ["'self'", "https://oauth.telegram.org"],
+        connectSrc: ["'self'", "https://oauth.telegram.org"],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
         baseUri: ["'self'"],
@@ -98,6 +98,7 @@ export function createApp() {
       },
     },
     crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   }));
   app.use(express.json({ limit: "100kb" }));
   app.use(cookieParser());

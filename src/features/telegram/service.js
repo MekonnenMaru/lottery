@@ -12,6 +12,13 @@ export function telegramBot() {
   return { enabled, token: enabled ? token : "", username: enabled ? username : "" };
 }
 
+export function telegramClientId() {
+  const explicit = String(process.env.TELEGRAM_CLIENT_ID || "").trim();
+  if (/^\d{5,16}$/.test(explicit)) return explicit;
+  const id = String(process.env.TELEGRAM_BOT_TOKEN || "").split(":")[0];
+  return /^\d{5,16}$/.test(id) ? id : "";
+}
+
 export function customerProfile(row) {
   if (!row) return null;
   return {
@@ -68,20 +75,21 @@ export async function rememberTelegramUser(code, telegramId) {
   return result.affectedRows === 1;
 }
 
-export async function finishTelegramLogin({ telegramId, firstName, lastName, username, phone }) {
+function customerName(firstName, lastName, fullName) {
+  const combined = String(fullName || "").trim() || [firstName, lastName].filter(Boolean).join(" ");
+  return combined.replace(/\s+/g, " ").trim().slice(0, 80) || "Telegram user";
+}
+
+function customerHandle(username) {
+  return String(username || "").replace(/[^\w]/g, "").slice(0, 64);
+}
+
+async function saveCustomer({ telegramId, name, username, phone }) {
   const id = Number(telegramId);
-  if (!Number.isSafeInteger(id) || id < 1) return "expired";
-  const login = await get(
-    `SELECT * FROM telegram_logins
-     WHERE telegram_user_id = ? AND session_id IS NULL AND expires_at >= ?
-     ORDER BY expires_at DESC LIMIT 1`,
-    [id, Date.now()],
-  );
-  if (!login) return "expired";
+  if (!Number.isSafeInteger(id) || id < 1) return null;
   const normalized = normalizePhone(phone);
-  if (!normalized) return "phone";
-  const name = [firstName, lastName].filter(Boolean).join(" ").replace(/\s+/g, " ").trim().slice(0, 80) || "Telegram user";
-  const handle = String(username || "").replace(/[^\w]/g, "").slice(0, 64);
+  if (!normalized) return null;
+  const handle = customerHandle(username);
   const existing = await get("SELECT id FROM customers WHERE telegram_id = ?", [id]);
   let customerId = existing?.id;
   if (!customerId) {
@@ -96,10 +104,134 @@ export async function finishTelegramLogin({ telegramId, firstName, lastName, use
       [name, handle, normalized, customerId],
     );
   }
-  const session = await createSession("buyer", String(customerId), 30 * 24 * 60 * 60 * 1000);
+  return { id: customerId, name, username: handle, phone: normalized };
+}
+
+let telegramKeysCache = { at: 0, keys: [] };
+
+async function telegramKeys(force) {
+  if (!force && telegramKeysCache.keys.length && Date.now() - telegramKeysCache.at < 60 * 60 * 1000) {
+    return telegramKeysCache.keys;
+  }
+  const response = await fetch("https://oauth.telegram.org/.well-known/jwks.json", {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw httpError(400, "Could not confirm the Telegram sign-in");
+  const body = await response.json();
+  const keys = Array.isArray(body.keys) ? body.keys : [];
+  telegramKeysCache = { at: Date.now(), keys };
+  return keys;
+}
+
+function decodePart(part) {
+  const pad = part.length % 4 === 0 ? "" : "=".repeat(4 - (part.length % 4));
+  return Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/") + pad);
+}
+
+function signatureMatches(alg, key, data, signature) {
+  if (alg === "RS256") return crypto.verify("RSA-SHA256", data, key, signature);
+  if (alg === "ES256") {
+    return crypto.verify("sha256", data, { key, dsaEncoding: "ieee-p1363" }, signature);
+  }
+  return false;
+}
+
+export async function beginTelegramOidc() {
+  const clientId = telegramClientId();
+  if (!clientId) throw httpError(400, "Telegram sign-in is not set up yet");
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const expiresAt = Date.now() + LOGIN_MS;
+  await run("DELETE FROM telegram_logins WHERE expires_at < ?", [Date.now()]);
+  await run("INSERT INTO telegram_logins (code, expires_at) VALUES (?, ?)", [nonce, expiresAt]);
+  return { nonce, clientId };
+}
+
+export async function completeTelegramOidc(idToken) {
+  const parts = String(idToken || "").split(".");
+  if (parts.length !== 3 || parts.some((part) => !part || part.length > 8000)) {
+    throw httpError(400, "Telegram sign-in was rejected");
+  }
+  let header;
+  let payload;
+  try {
+    header = JSON.parse(decodePart(parts[0]).toString("utf8"));
+    payload = JSON.parse(decodePart(parts[1]).toString("utf8"));
+  } catch {
+    throw httpError(400, "Telegram sign-in was rejected");
+  }
+  if (!header?.kid || (header.alg !== "RS256" && header.alg !== "ES256")) {
+    throw httpError(400, "Telegram sign-in was rejected");
+  }
+  const clientId = telegramClientId();
+  const nonce = String(payload.nonce || "");
+  if (!clientId || !/^[a-f0-9]{32}$/.test(nonce)) throw httpError(400, "This sign-in expired");
+  const data = Buffer.from(`${parts[0]}.${parts[1]}`);
+  const signature = decodePart(parts[2]);
+  let keys = await telegramKeys(false);
+  let jwk = keys.find((key) => key.kid === header.kid);
+  if (!jwk) {
+    keys = await telegramKeys(true);
+    jwk = keys.find((key) => key.kid === header.kid);
+  }
+  if (!jwk) throw httpError(400, "Telegram sign-in was rejected");
+  let key;
+  try {
+    key = crypto.createPublicKey({ key: jwk, format: "jwk" });
+  } catch {
+    throw httpError(400, "Telegram sign-in was rejected");
+  }
+  if (!signatureMatches(header.alg, key, data, signature)) {
+    throw httpError(400, "Telegram sign-in was rejected");
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (payload.iss !== "https://oauth.telegram.org") throw httpError(400, "Telegram sign-in was rejected");
+  if (!audience.map(String).includes(clientId)) throw httpError(400, "Telegram sign-in was rejected");
+  if (!Number.isFinite(payload.exp) || payload.exp < now - 60) throw httpError(400, "This sign-in expired");
+  if (Number.isFinite(payload.nbf) && payload.nbf > now + 60) throw httpError(400, "Telegram sign-in was rejected");
+  const spent = await run(
+    "DELETE FROM telegram_logins WHERE code = ? AND session_id IS NULL AND expires_at >= ?",
+    [nonce, Date.now()],
+  );
+  if (spent.affectedRows !== 1) throw httpError(400, "This sign-in expired");
+  const telegramId = Number(payload.id);
+  const phone = payload.phone_number;
+  if (!Number.isSafeInteger(telegramId) || telegramId < 1) throw httpError(400, "Telegram sign-in was rejected");
+  if (!phone || payload.phone_number_verified === false) {
+    throw httpError(400, "Allow your phone number in Telegram to sign in.");
+  }
+  const customer = await saveCustomer({
+    telegramId,
+    name: customerName(payload.given_name, payload.family_name, payload.name),
+    username: payload.preferred_username,
+    phone,
+  });
+  if (!customer) throw httpError(400, "That phone number cannot be used. Use an Ethiopian mobile number.");
+  const session = await createSession("buyer", String(customer.id), 30 * 24 * 60 * 60 * 1000);
+  return { customer, session };
+}
+
+export async function finishTelegramLogin({ telegramId, firstName, lastName, username, phone }) {
+  const id = Number(telegramId);
+  if (!Number.isSafeInteger(id) || id < 1) return "expired";
+  const login = await get(
+    `SELECT * FROM telegram_logins
+     WHERE telegram_user_id = ? AND session_id IS NULL AND expires_at >= ?
+     ORDER BY expires_at DESC LIMIT 1`,
+    [id, Date.now()],
+  );
+  if (!login) return "expired";
+  const customer = await saveCustomer({
+    telegramId: id,
+    name: customerName(firstName, lastName),
+    username,
+    phone,
+  });
+  if (!customer) return "phone";
+  const session = await createSession("buyer", String(customer.id), 30 * 24 * 60 * 60 * 1000);
   await run(
     "UPDATE telegram_logins SET customer_id = ?, session_id = ? WHERE code = ? AND session_id IS NULL",
-    [customerId, session.id, login.code],
+    [customer.id, session.id, login.code],
   );
   return "ready";
 }

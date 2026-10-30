@@ -68,6 +68,17 @@ style.textContent = `
   cursor: pointer;
 }
 .dark .tg-panel button.tg-out { color: #facc15; }
+.tg-panel button.tg-bot {
+  width: 100%;
+  margin-top: 4px;
+  border: 0;
+  background: transparent;
+  color: #92400e;
+  font: 700 13px/1 Inter, "Segoe UI", system-ui, sans-serif;
+  padding: 8px;
+  cursor: pointer;
+}
+.dark .tg-panel button.tg-bot { color: #facc15; }
 `;
 document.head.appendChild(style);
 
@@ -81,6 +92,8 @@ const copy = {
     hint: "Your name and phone number come from Telegram.",
     opening: "Opening Telegram…",
     share: "Tap Share phone in Telegram, then return here.",
+    closed: "Telegram was closed before sign-in finished.",
+    bot: "Continue in the bot",
   },
   am: {
     signIn: "በቴሌግራም ይግቡ",
@@ -89,6 +102,8 @@ const copy = {
     hint: "ስም እና ስልክ ቁጥር ከቴሌግራም ይመጣሉ።",
     opening: "ቴሌግራም እየተከፈተ ነው…",
     share: "በቴሌግራም ስልክ ቁጥር ያጋሩ፣ ከዚያ ወደዚህ ይመለሱ።",
+    closed: "መግቢያው ከመጠናቀቁ በፊት ቴሌግራም ተዘግቷል።",
+    bot: "በቦቱ ይቀጥሉ",
   },
   or: {
     signIn: "Telegram'n seeni",
@@ -97,10 +112,13 @@ const copy = {
     hint: "Maqaan fi lakkoofsi bilbilaa Telegram irraa dhufa.",
     opening: "Telegram banamaa jira…",
     share: "Telegram irratti bilbila kee qoodi, sana booda as deebi'i.",
+    closed: "Telegram cufame osoo seenuun hin xumuramin.",
+    bot: "Botiin itti fufi",
   },
 };
 
 let waiting = null;
+let clientId = "";
 let currentUser = null;
 let currentNote = "";
 let queued = false;
@@ -150,7 +168,13 @@ function view(user, note) {
     panel.innerHTML = `<div class="tg-row"><span class="tg-mark">${plane}</span><strong></strong></div><button type="button" class="tg-go">${plane}<span></span></button>${message ? `<p class="tg-note"></p>` : `<p class="tg-hint"></p>`}`;
     panel.querySelector("strong").textContent = "Telegram";
     panel.querySelector(".tg-go span").textContent = text("signIn");
-    panel.querySelector("button").addEventListener("click", start);
+    panel.querySelector(".tg-go").addEventListener("click", start);
+    const bot = document.createElement("button");
+    bot.type = "button";
+    bot.className = "tg-bot";
+    bot.textContent = text("bot");
+    bot.addEventListener("click", start);
+    panel.querySelector(".tg-go").insertAdjacentElement("afterend", bot);
     const line = panel.querySelector(".tg-note, .tg-hint");
     line.textContent = message || text("hint");
   }
@@ -176,6 +200,7 @@ async function refresh() {
     const body = await read("/api/telegram.php");
     const before = localStorage.getItem("maraki_phone") || "";
     const next = body.user?.phone || "";
+    clientId = body.clientId || "";
     storeUser(body.user || null);
     if (next !== before) {
       location.reload();
@@ -187,7 +212,59 @@ async function refresh() {
   }
 }
 
-async function start() {
+function loadSdk() {
+  if (window.Telegram?.Login?.auth) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://oauth.telegram.org/js/telegram-login.js?3";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not open Telegram"));
+    document.head.appendChild(script);
+  });
+}
+
+async function oidcStart() {
+  view(null, "opening");
+  const begun = await read("/api/telegram-oidc.php", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  await loadSdk();
+  window.Telegram.Login.auth({
+    client_id: Number(begun.clientId || clientId),
+    scope: ["profile", "phone"],
+    nonce: begun.nonce,
+    lang: lang() === "am" ? "am" : "en",
+  }, async (result) => {
+    if (!result?.id_token) {
+      view(null, result?.error === "popup_closed" ? "closed" : (result?.error || "Could not use Telegram"));
+      return;
+    }
+    try {
+      const body = await read("/api/telegram-oidc.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id_token: result.id_token }),
+      });
+      storeUser(body.user);
+      location.reload();
+    } catch (error) {
+      view(null, error.message);
+    }
+  });
+}
+
+async function start(event) {
+  if (!event?.currentTarget?.classList?.contains("tg-bot") && clientId) {
+    try {
+      await oidcStart();
+    } catch (error) {
+      view(null, error.message);
+    }
+    return;
+  }
   view(null, "opening");
   try {
     const body = await read("/api/telegram-login.php", {

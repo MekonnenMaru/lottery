@@ -1,6 +1,13 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
+import { openDatabase, syncLotteryImages } from "./src/db.js";
+import { ensureAdmin } from "./src/features/admin/service.js";
+import { seedCatalog } from "./src/features/lotteries/seed.js";
+import { seedBanks } from "./src/features/banks/service.js";
+import { createApp } from "./src/app.js";
+import { appName } from "./src/util.js";
+import { startTelegramBot } from "./src/features/telegram/bot.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 dotenv.config({ path: path.join(root, ".env") });
@@ -26,28 +33,27 @@ if (production) {
   }
 }
 
-const { openDatabase, syncLotteryImages } = await import("./src/db.js");
-const { ensureAdmin } = await import("./src/features/admin/service.js");
-const { seedCatalog } = await import("./src/features/lotteries/seed.js");
-const { seedBanks } = await import("./src/features/banks/service.js");
-const { createApp } = await import("./src/app.js");
-const { appName } = await import("./src/util.js");
-const { startTelegramBot } = await import("./src/features/telegram/bot.js");
+async function start() {
+  await openDatabase();
+  const adminUsername = await ensureAdmin();
+  await seedBanks();
+  await seedCatalog();
+  await syncLotteryImages();
 
-await openDatabase();
-const adminUsername = await ensureAdmin();
-await seedBanks();
-await seedCatalog();
-await syncLotteryImages();
+  const port = Number(process.env.PORT) || 3000;
+  const host = process.env.HOST || "127.0.0.1";
+  const server = createApp().listen(port, host, () => {
+    console.log(`${appName()} running at http://${host}:${port}`);
+    console.log(`Staff sign-in: ${adminUsername}`);
+    startTelegramBot();
+  });
+  server.on("error", (error) => {
+    console.error(error.code === "EADDRINUSE" ? `Port ${port} is already in use` : error);
+    process.exit(1);
+  });
+}
 
-const port = Number(process.env.PORT) || 3000;
-const host = process.env.HOST || "127.0.0.1";
-const server = createApp().listen(port, host, () => {
-  console.log(`${appName()} running at http://${host}:${port}`);
-  console.log(`Staff sign-in: ${adminUsername}`);
-  startTelegramBot();
-});
-server.on("error", (error) => {
-  console.error(error.code === "EADDRINUSE" ? `Port ${port} is already in use` : error);
+start().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

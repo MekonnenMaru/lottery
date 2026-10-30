@@ -21,10 +21,13 @@ import {
 import { buildReport, reportData } from "../reports/service.js";
 import {
   beginTelegramLogin,
+  beginTelegramOidc,
+  completeTelegramOidc,
   consumeTelegramLogin,
   customerFromSession,
   customerProfile,
   telegramBot,
+  telegramClientId,
   telegramLoginStatus,
 } from "../telegram/service.js";
 import { approveOrder, createStoreOrder, rejectOrder } from "../orders/service.js";
@@ -140,7 +143,23 @@ router.get("/telegram.php", wrap(async (req, res) => {
   const bot = telegramBot();
   const session = await readSession(req.cookies?.buyer_sid, "buyer");
   const customer = await customerFromSession(session);
-  res.json({ success: true, enabled: bot.enabled, user: customerProfile(customer) });
+  res.json({
+    success: true,
+    enabled: bot.enabled,
+    clientId: telegramClientId(),
+    user: customerProfile(customer),
+  });
+}));
+
+router.post("/telegram-oidc.php", siteLimiter(20), wrap(async (req, res) => {
+  if (req.body?.id_token) {
+    const done = await completeTelegramOidc(req.body.id_token);
+    res.cookie("buyer_sid", done.session.id, cookieOptions(done.session.expiresAt));
+    res.json({ success: true, user: customerProfile(done.customer) });
+    return;
+  }
+  const begun = await beginTelegramOidc();
+  res.json({ success: true, nonce: begun.nonce, clientId: begun.clientId });
 }));
 
 router.post("/telegram-login.php", siteLimiter(10), wrap(async (req, res) => {
