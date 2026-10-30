@@ -168,13 +168,9 @@ function view(user, note) {
     panel.innerHTML = `<div class="tg-row"><span class="tg-mark">${plane}</span><strong></strong></div><button type="button" class="tg-go">${plane}<span></span></button>${message ? `<p class="tg-note"></p>` : `<p class="tg-hint"></p>`}`;
     panel.querySelector("strong").textContent = "Telegram";
     panel.querySelector(".tg-go span").textContent = text("signIn");
-    panel.querySelector(".tg-go").addEventListener("click", start);
-    const bot = document.createElement("button");
-    bot.type = "button";
-    bot.className = "tg-bot";
-    bot.textContent = text("bot");
-    bot.addEventListener("click", start);
-    panel.querySelector(".tg-go").insertAdjacentElement("afterend", bot);
+    panel.querySelector(".tg-go").addEventListener("click", () => {
+      oidcStart().catch((error) => view(null, error.message));
+    });
     const line = panel.querySelector(".tg-note, .tg-hint");
     line.textContent = message || text("hint");
   }
@@ -225,6 +221,10 @@ function loadSdk() {
 }
 
 async function oidcStart() {
+  if (!clientId) {
+    view(null, "Add the Telegram client id from BotFather, then restart the app.");
+    return;
+  }
   view(null, "opening");
   const begun = await read("/api/telegram-oidc.php", {
     method: "POST",

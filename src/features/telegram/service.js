@@ -138,7 +138,7 @@ function signatureMatches(alg, key, data, signature) {
 
 export async function beginTelegramOidc() {
   const clientId = telegramClientId();
-  if (!clientId) throw httpError(400, "Telegram sign-in is not set up yet");
+  if (!clientId) throw httpError(400, "Add the Telegram client id from BotFather, then restart the app.");
   const nonce = crypto.randomBytes(16).toString("hex");
   const expiresAt = Date.now() + LOGIN_MS;
   await run("DELETE FROM telegram_logins WHERE expires_at < ?", [Date.now()]);
