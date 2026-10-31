@@ -91,9 +91,7 @@ const copy = {
     signed: "Signed in with Telegram",
     hint: "Your name and phone number come from Telegram.",
     opening: "Opening Telegram…",
-    share: "Tap Share phone in Telegram, then return here.",
     closed: "Telegram was closed before sign-in finished.",
-    bot: "Continue in the bot",
   },
   am: {
     signIn: "በቴሌግራም ይግቡ",
@@ -101,9 +99,7 @@ const copy = {
     signed: "በቴሌግራም ገብተዋል",
     hint: "ስም እና ስልክ ቁጥር ከቴሌግራም ይመጣሉ።",
     opening: "ቴሌግራም እየተከፈተ ነው…",
-    share: "በቴሌግራም ስልክ ቁጥር ያጋሩ፣ ከዚያ ወደዚህ ይመለሱ።",
     closed: "መግቢያው ከመጠናቀቁ በፊት ቴሌግራም ተዘግቷል።",
-    bot: "በቦቱ ይቀጥሉ",
   },
   or: {
     signIn: "Telegram'n seeni",
@@ -111,13 +107,10 @@ const copy = {
     signed: "Telegram'n seentaniittu",
     hint: "Maqaan fi lakkoofsi bilbilaa Telegram irraa dhufa.",
     opening: "Telegram banamaa jira…",
-    share: "Telegram irratti bilbila kee qoodi, sana booda as deebi'i.",
     closed: "Telegram cufame osoo seenuun hin xumuramin.",
-    bot: "Botiin itti fufi",
   },
 };
 
-let waiting = null;
 let clientId = "";
 let currentUser = null;
 let currentNote = "";
@@ -169,7 +162,7 @@ function view(user, note) {
     panel.querySelector("strong").textContent = "Telegram";
     panel.querySelector(".tg-go span").textContent = text("signIn");
     panel.querySelector(".tg-go").addEventListener("click", () => {
-      oidcStart().catch((error) => view(null, error.message));
+      signIn().catch((error) => view(null, error.message));
     });
     const line = panel.querySelector(".tg-note, .tg-hint");
     line.textContent = message || text("hint");
@@ -220,90 +213,45 @@ function loadSdk() {
   });
 }
 
-async function oidcStart() {
+function askTelegram({ clientId: id, nonce }) {
+  return new Promise((resolve) => {
+    window.Telegram.Login.auth({
+      client_id: Number(id),
+      scope: ["profile", "phone"],
+      nonce,
+      lang: lang() === "am" ? "am" : "en",
+    }, resolve);
+  });
+}
+
+// 1 click, 2 Telegram asks, 3 id token comes back, 4–6 the server checks it and starts the session.
+async function signIn() {
   if (!clientId) {
     view(null, "Add the Telegram client id from BotFather, then restart the app.");
     return;
   }
   view(null, "opening");
-  const begun = await read("/api/telegram-oidc.php", {
+  const started = await read("/api/telegram-oidc.php", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
   await loadSdk();
-  window.Telegram.Login.auth({
-    client_id: Number(begun.clientId || clientId),
-    scope: ["profile", "phone"],
-    nonce: begun.nonce,
-    lang: lang() === "am" ? "am" : "en",
-  }, async (result) => {
-    if (!result?.id_token) {
-      view(null, result?.error === "popup_closed" ? "closed" : (result?.error || "Could not use Telegram"));
-      return;
-    }
-    try {
-      const body = await read("/api/telegram-oidc.php", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id_token: result.id_token }),
-      });
-      storeUser(body.user);
-      location.reload();
-    } catch (error) {
-      view(null, error.message);
-    }
-  });
-}
-
-async function start(event) {
-  if (!event?.currentTarget?.classList?.contains("tg-bot") && clientId) {
-    try {
-      await oidcStart();
-    } catch (error) {
-      view(null, error.message);
-    }
+  const result = await askTelegram({ clientId: started.clientId || clientId, nonce: started.nonce });
+  if (!result?.id_token) {
+    view(null, result?.error === "popup_closed" ? "closed" : (result?.error || "Could not use Telegram"));
     return;
   }
-  view(null, "opening");
-  try {
-    const body = await read("/api/telegram-login.php", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    window.open(body.url, "_blank", "noopener");
-    waiting = body.code;
-    view(null, "share");
-    poll(body.code);
-  } catch (error) {
-    view(null, error.message);
-  }
-}
-
-async function poll(code) {
-  const deadline = Date.now() + 10 * 60 * 1000;
-  while (waiting === code && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    if (waiting !== code) return;
-    try {
-      const body = await read(`/api/telegram-login.php?code=${code}`);
-      if (!body.pending) {
-        waiting = null;
-        storeUser(body.user);
-        location.reload();
-        return;
-      }
-    } catch (error) {
-      waiting = null;
-      view(null, error.message);
-      return;
-    }
-  }
+  const body = await read("/api/telegram-oidc.php", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id_token: result.id_token }),
+  });
+  storeUser(body.user);
+  location.reload();
 }
 
 async function signOut() {
-  waiting = null;
   await fetch("/api/telegram-logout.php", {
     method: "POST",
     credentials: "same-origin",

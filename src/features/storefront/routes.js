@@ -151,6 +151,7 @@ router.get("/telegram.php", wrap(async (req, res) => {
   });
 }));
 
+// Click and Telegram's window live in public/telegram.js. This checks the signature and starts the session.
 router.post("/telegram-oidc.php", siteLimiter(20), wrap(async (req, res) => {
   if (req.body?.id_token) {
     const done = await completeTelegramOidc(req.body.id_token);

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { get, run } from "../../db.js";
 import { createSession } from "../auth/service.js";
 import { httpError, normalizePhone } from "../../util.js";
+import { verifyTelegramToken } from "./verify.js";
 
 const LOGIN_MS = 10 * 60 * 1000;
 
@@ -107,35 +108,6 @@ async function saveCustomer({ telegramId, name, username, phone }) {
   return { id: customerId, name, username: handle, phone: normalized };
 }
 
-let telegramKeysCache = { at: 0, keys: [] };
-
-async function telegramKeys(force) {
-  if (!force && telegramKeysCache.keys.length && Date.now() - telegramKeysCache.at < 60 * 60 * 1000) {
-    return telegramKeysCache.keys;
-  }
-  const response = await fetch("https://oauth.telegram.org/.well-known/jwks.json", {
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!response.ok) throw httpError(400, "Could not confirm the Telegram sign-in");
-  const body = await response.json();
-  const keys = Array.isArray(body.keys) ? body.keys : [];
-  telegramKeysCache = { at: Date.now(), keys };
-  return keys;
-}
-
-function decodePart(part) {
-  const pad = part.length % 4 === 0 ? "" : "=".repeat(4 - (part.length % 4));
-  return Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/") + pad);
-}
-
-function signatureMatches(alg, key, data, signature) {
-  if (alg === "RS256") return crypto.verify("RSA-SHA256", data, key, signature);
-  if (alg === "ES256") {
-    return crypto.verify("sha256", data, { key, dsaEncoding: "ieee-p1363" }, signature);
-  }
-  return false;
-}
-
 export async function beginTelegramOidc() {
   const clientId = telegramClientId();
   if (!clientId) throw httpError(400, "Add the Telegram client id from BotFather, then restart the app.");
@@ -147,48 +119,11 @@ export async function beginTelegramOidc() {
 }
 
 export async function completeTelegramOidc(idToken) {
-  const parts = String(idToken || "").split(".");
-  if (parts.length !== 3 || parts.some((part) => !part || part.length > 8000)) {
-    throw httpError(400, "Telegram sign-in was rejected");
-  }
-  let header;
-  let payload;
-  try {
-    header = JSON.parse(decodePart(parts[0]).toString("utf8"));
-    payload = JSON.parse(decodePart(parts[1]).toString("utf8"));
-  } catch {
-    throw httpError(400, "Telegram sign-in was rejected");
-  }
-  if (!header?.kid || (header.alg !== "RS256" && header.alg !== "ES256")) {
-    throw httpError(400, "Telegram sign-in was rejected");
-  }
   const clientId = telegramClientId();
+  if (!clientId) throw httpError(400, "Add the Telegram client id from BotFather, then restart the app.");
+  const payload = await verifyTelegramToken(idToken, clientId);
   const nonce = String(payload.nonce || "");
-  if (!clientId || !/^[a-f0-9]{32}$/.test(nonce)) throw httpError(400, "This sign-in expired");
-  const data = Buffer.from(`${parts[0]}.${parts[1]}`);
-  const signature = decodePart(parts[2]);
-  let keys = await telegramKeys(false);
-  let jwk = keys.find((key) => key.kid === header.kid);
-  if (!jwk) {
-    keys = await telegramKeys(true);
-    jwk = keys.find((key) => key.kid === header.kid);
-  }
-  if (!jwk) throw httpError(400, "Telegram sign-in was rejected");
-  let key;
-  try {
-    key = crypto.createPublicKey({ key: jwk, format: "jwk" });
-  } catch {
-    throw httpError(400, "Telegram sign-in was rejected");
-  }
-  if (!signatureMatches(header.alg, key, data, signature)) {
-    throw httpError(400, "Telegram sign-in was rejected");
-  }
-  const now = Math.floor(Date.now() / 1000);
-  const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-  if (payload.iss !== "https://oauth.telegram.org") throw httpError(400, "Telegram sign-in was rejected");
-  if (!audience.map(String).includes(clientId)) throw httpError(400, "Telegram sign-in was rejected");
-  if (!Number.isFinite(payload.exp) || payload.exp < now - 60) throw httpError(400, "This sign-in expired");
-  if (Number.isFinite(payload.nbf) && payload.nbf > now + 60) throw httpError(400, "Telegram sign-in was rejected");
+  if (!/^[a-f0-9]{32}$/.test(nonce)) throw httpError(400, "This sign-in expired");
   const spent = await run(
     "DELETE FROM telegram_logins WHERE code = ? AND session_id IS NULL AND expires_at >= ?",
     [nonce, Date.now()],
