@@ -22,6 +22,7 @@ import { buildReport, reportData } from "../reports/service.js";
 import {
   beginTelegramOidc,
   completeTelegramOidc,
+  completeTelegramWebApp,
   customerFromSession,
   customerProfile,
   telegramClientId,
@@ -155,6 +156,12 @@ router.post("/telegram-oidc.php", siteLimiter(20), wrap(async (req, res) => {
   }
   const begun = await beginTelegramOidc();
   res.json({ success: true, nonce: begun.nonce, clientId: begun.clientId });
+}));
+
+router.post("/telegram-webapp.php", siteLimiter(20), wrap(async (req, res) => {
+  const done = await completeTelegramWebApp(req.body?.initData);
+  res.cookie("buyer_sid", done.session.id, cookieOptions(done.session.expiresAt));
+  res.json({ success: true, user: customerProfile(done.customer) });
 }));
 
 router.post("/telegram-logout.php", wrap(async (req, res) => {

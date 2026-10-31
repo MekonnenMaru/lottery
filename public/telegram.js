@@ -265,10 +265,37 @@ async function signOut() {
   location.reload();
 }
 
+function loadWebApp() {
+  if (window.Telegram?.WebApp || !/Telegram/i.test(navigator.userAgent)) return Promise.resolve();
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-web-app.js";
+    script.onload = () => resolve();
+    script.onerror = () => resolve();
+    document.head.appendChild(script);
+  });
+}
+
+async function openFromBot() {
+  await loadWebApp();
+  const app = window.Telegram?.WebApp;
+  const initData = app?.initData || "";
+  if (!initData) return;
+  app.ready?.();
+  app.expand?.();
+  const session = await read("/api/telegram.php").catch(() => null);
+  if (session?.user) return;
+  await read("/api/telegram-webapp.php", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initData }),
+  });
+}
+
 document.addEventListener("change", (event) => {
   if (event.target instanceof HTMLSelectElement && event.target.closest("header")) view(currentUser, currentNote, busy);
 });
 window.addEventListener("resize", scheduleSync);
 const root = document.getElementById("root");
 if (root) new MutationObserver(scheduleSync).observe(root, { childList: true, subtree: true });
-refresh();
+openFromBot().catch(() => {}).finally(refresh);

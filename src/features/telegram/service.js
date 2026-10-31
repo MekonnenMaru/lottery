@@ -115,3 +115,55 @@ export async function completeTelegramOidc(idToken) {
   const session = await createSession("buyer", String(customer.id), 30 * 24 * 60 * 60 * 1000);
   return { customer, session };
 }
+
+function botToken() {
+  const value = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  return /^\d{5,16}:[A-Za-z0-9_-]{20,}$/.test(value) ? value : "";
+}
+
+export function readWebAppUser(initData) {
+  const secret = botToken();
+  if (!secret) throw httpError(400, "Add the bot token in .env, then restart the app.");
+  const text = String(initData || "");
+  if (text.length < 20 || text.length > 4096) throw httpError(400, "Open Equb again from the bot.");
+  const params = new URLSearchParams(text);
+  const hash = String(params.get("hash") || "");
+  if (!/^[a-f0-9]{64}$/.test(hash)) throw httpError(400, "Open Equb again from the bot.");
+  const lines = [];
+  for (const [key, value] of params.entries()) {
+    if (key !== "hash") lines.push(`${key}=${value}`);
+  }
+  lines.sort();
+  const secretKey = crypto.createHmac("sha256", "WebAppData").update(secret).digest();
+  const calculated = crypto.createHmac("sha256", secretKey).update(lines.join("\n")).digest("hex");
+  const left = Buffer.from(calculated, "hex");
+  const right = Buffer.from(hash, "hex");
+  if (left.length !== right.length || !crypto.timingSafeEqual(left, right)) {
+    throw httpError(400, "Open Equb again from the bot.");
+  }
+  const authDate = Number(params.get("auth_date"));
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(authDate) || authDate > now + 300 || now - authDate > 60 * 60) {
+    throw httpError(400, "Open Equb again from the bot.");
+  }
+  let user;
+  try {
+    user = JSON.parse(params.get("user") || "");
+  } catch {
+    throw httpError(400, "Open Equb again from the bot.");
+  }
+  const telegramId = String(user?.id ?? "");
+  if (!/^\d{1,19}$/.test(telegramId)) throw httpError(400, "Open Equb again from the bot.");
+  return telegramId;
+}
+
+export async function completeTelegramWebApp(initData) {
+  const telegramId = readWebAppUser(initData);
+  const customer = await get(
+    "SELECT id, name, username, phone FROM customers WHERE telegram_id = ?",
+    [telegramId],
+  );
+  if (!customer?.phone) throw httpError(400, "Share your phone number with the bot first.");
+  const session = await createSession("buyer", String(customer.id), 30 * 24 * 60 * 60 * 1000);
+  return { customer, session };
+}
