@@ -20,15 +20,11 @@ import {
 } from "../lotteries/service.js";
 import { buildReport, reportData } from "../reports/service.js";
 import {
-  beginTelegramLogin,
   beginTelegramOidc,
   completeTelegramOidc,
-  consumeTelegramLogin,
   customerFromSession,
   customerProfile,
-  telegramBot,
   telegramClientId,
-  telegramLoginStatus,
 } from "../telegram/service.js";
 import { approveOrder, createStoreOrder, rejectOrder } from "../orders/service.js";
 import {
@@ -140,12 +136,10 @@ router.get("/lotteries.php", wrap(async (req, res) => {
 }));
 
 router.get("/telegram.php", wrap(async (req, res) => {
-  const bot = telegramBot();
   const session = await readSession(req.cookies?.buyer_sid, "buyer");
   const customer = await customerFromSession(session);
   res.json({
     success: true,
-    enabled: bot.enabled,
     clientId: telegramClientId(),
     user: customerProfile(customer),
   });
@@ -161,25 +155,6 @@ router.post("/telegram-oidc.php", siteLimiter(20), wrap(async (req, res) => {
   }
   const begun = await beginTelegramOidc();
   res.json({ success: true, nonce: begun.nonce, clientId: begun.clientId });
-}));
-
-router.post("/telegram-login.php", siteLimiter(10), wrap(async (req, res) => {
-  const login = await beginTelegramLogin();
-  res.json({ success: true, ...login });
-}));
-
-router.get("/telegram-login.php", wrap(async (req, res) => {
-  const status = await telegramLoginStatus(req.query.code);
-  if (!status) throw httpError(400, "This sign-in expired");
-  if (status.pending) {
-    res.json({ success: true, pending: true });
-    return;
-  }
-  const session = await readSession(status.sessionId, "buyer");
-  if (!session) throw httpError(400, "This sign-in expired");
-  res.cookie("buyer_sid", session.id, cookieOptions(Number(session.expires_at)));
-  await consumeTelegramLogin(req.query.code);
-  res.json({ success: true, pending: false, user: customerProfile(status.customer) });
 }));
 
 router.post("/telegram-logout.php", wrap(async (req, res) => {

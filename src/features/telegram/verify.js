@@ -19,9 +19,14 @@ function decode(part) {
   return Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/") + pad);
 }
 
+const SIGNING_ALGS = new Set(["RS256", "ES256", "EdDSA", "ES256K"]);
+
 function signedByTelegram(alg, key, data, signature) {
   if (alg === "RS256") return crypto.verify("RSA-SHA256", data, key, signature);
-  if (alg === "ES256") return crypto.verify("sha256", data, { key, dsaEncoding: "ieee-p1363" }, signature);
+  if (alg === "ES256" || alg === "ES256K") {
+    return crypto.verify("sha256", data, { key, dsaEncoding: "ieee-p1363" }, signature);
+  }
+  if (alg === "EdDSA") return crypto.verify(null, data, key, signature);
   return false;
 }
 
@@ -39,7 +44,7 @@ export async function verifyTelegramToken(idToken, clientId) {
   } catch {
     throw httpError(400, "Telegram sign-in was rejected");
   }
-  if (!header?.kid || (header.alg !== "RS256" && header.alg !== "ES256")) {
+  if (!header?.kid || !SIGNING_ALGS.has(header.alg)) {
     throw httpError(400, "Telegram sign-in was rejected");
   }
   let keys = await signingKeys(false);

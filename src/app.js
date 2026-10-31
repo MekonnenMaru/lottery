@@ -19,7 +19,7 @@ function photoFrame(gradientClass) {
   return [shots, fade, prev, count, next].join(",");
 }
 
-export function publishBuyerBundle() {
+function publishBuyerBundle() {
   const body = buyerScript();
   fs.writeFileSync(path.join(publicDir, "assets", "maraki.js"), body);
   return body;
@@ -95,8 +95,8 @@ export function createApp() {
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         styleSrcAttr: ["'unsafe-inline'"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        scriptSrc: ["'self'", "https://oauth.telegram.org"],
-        connectSrc: ["'self'", "https://oauth.telegram.org"],
+        scriptSrc: ["'self'", "https://oauth.telegram.org", "https://static.cloudflareinsights.com"],
+        connectSrc: ["'self'", "https://oauth.telegram.org", "https://cloudflareinsights.com"],
         formAction: ["'self'"],
         frameAncestors: ["'none'"],
         baseUri: ["'self'"],

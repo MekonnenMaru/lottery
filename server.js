@@ -7,7 +7,6 @@ import { seedCatalog } from "./src/features/lotteries/seed.js";
 import { seedBanks } from "./src/features/banks/service.js";
 import { createApp } from "./src/app.js";
 import { appName } from "./src/util.js";
-import { startTelegramBot } from "./src/features/telegram/bot.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 dotenv.config({ path: path.join(root, ".env") });
@@ -45,7 +44,6 @@ async function start() {
   const server = createApp().listen(port, host, () => {
     console.log(`${appName()} running at http://${host}:${port}`);
     console.log(`Staff sign-in: ${adminUsername}`);
-    startTelegramBot();
   });
   server.on("error", (error) => {
     console.error(error.code === "EADDRINUSE" ? `Port ${port} is already in use` : error);

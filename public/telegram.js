@@ -68,17 +68,6 @@ style.textContent = `
   cursor: pointer;
 }
 .dark .tg-panel button.tg-out { color: #facc15; }
-.tg-panel button.tg-bot {
-  width: 100%;
-  margin-top: 4px;
-  border: 0;
-  background: transparent;
-  color: #92400e;
-  font: 700 13px/1 Inter, "Segoe UI", system-ui, sans-serif;
-  padding: 8px;
-  cursor: pointer;
-}
-.dark .tg-panel button.tg-bot { color: #facc15; }
 `;
 document.head.appendChild(style);
 
