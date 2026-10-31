@@ -19,6 +19,12 @@ function photoFrame(gradientClass) {
   return [shots, fade, prev, count, next].join(",");
 }
 
+export function publishBuyerBundle() {
+  const body = buyerScript();
+  fs.writeFileSync(path.join(publicDir, "assets", "maraki.js"), body);
+  return body;
+}
+
 function buyerScript() {
   if (!buyerBundle) {
     const name = appName();
@@ -117,6 +123,8 @@ export function createApp() {
     next();
   });
 
+  publishBuyerBundle();
+
   const api = express.Router();
   api.get("/health", (req, res) => {
     res.json({ ok: true });
@@ -124,7 +132,7 @@ export function createApp() {
   api.use(storefrontRoutes);
   app.use("/api", api);
 
-  app.get("/assets/index-DnQ-JC9S.js", (req, res) => {
+  app.get(["/assets/maraki.js", "/assets/index-DnQ-JC9S.js"], (req, res) => {
     res.type("js").set("Cache-Control", "no-store").send(buyerScript());
   });
   app.get("/telegram.js", (req, res) => {

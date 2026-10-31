@@ -2,3 +2,4 @@ node_modules/
 .env
 storage/
 public/uploads/
+public/assets/maraki.js
