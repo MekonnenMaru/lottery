@@ -75,9 +75,18 @@ async function remember(message, phone) {
   return name;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
 function openButton() {
   return {
-    inline_keyboard: [[{ text: "Open Equb", web_app: { url: appUrl() } }]],
+    inline_keyboard: [[
+      { text: "🚗  Open Equb", style: "success", web_app: { url: appUrl() } },
+    ]],
   };
 }
 
@@ -104,6 +113,7 @@ async function sendPlay(botToken, chatId, text, signal) {
   await call(botToken, "sendMessage", {
     chat_id: chatId,
     text,
+    parse_mode: "HTML",
     reply_markup: openButton(),
   }, signal);
 }
@@ -111,9 +121,12 @@ async function sendPlay(botToken, chatId, text, signal) {
 async function askPhone(botToken, chatId, signal) {
   await call(botToken, "sendMessage", {
     chat_id: chatId,
-    text: "Please register by clicking the button below.\nበስልክ ቁጥርዎ ለመመዝገብ ከታች ያለውን በተን ይንኩ።",
+    text: "📝 <b>Register to join Equb</b>\n\nPlease share your phone number with the button below.\nበስልክ ቁጥርዎ ለመመዝገብ ከታች ያለውን በተን ይንኩ።",
+    parse_mode: "HTML",
     reply_markup: {
-      keyboard: [[{ text: "Share phone number", request_contact: true }]],
+      keyboard: [[
+        { text: "📱  Share phone number", style: "primary", request_contact: true },
+      ]],
       resize_keyboard: true,
       one_time_keyboard: true,
     },
@@ -123,8 +136,13 @@ async function askPhone(botToken, chatId, signal) {
 async function onStart(botToken, message, signal) {
   const row = await customer(message.from?.id);
   if (row) {
-    const name = row.name ? `Welcome back, ${row.name}.\n` : "";
-    await sendPlay(botToken, message.chat.id, `${name}Click the button below to open Equb.`, signal);
+    const name = row.name ? `, <b>${escapeHtml(row.name)}</b>` : "";
+    await sendPlay(
+      botToken,
+      message.chat.id,
+      `👋 Welcome back${name}.\n\nTap the button below to open Equb.\nከታች ያለውን በተን በመንካት እቁቡን ይክፈቱ።`,
+      signal,
+    );
     return;
   }
   await askPhone(botToken, message.chat.id, signal);
@@ -140,13 +158,18 @@ async function onContact(botToken, message, signal) {
   if (!phone) {
     await call(botToken, "sendMessage", {
       chat_id: message.chat.id,
-      text: "Use an Ethiopian mobile number.",
+      text: "🇪🇹 Please share an Ethiopian mobile number.",
     }, signal);
     return;
   }
   const name = await remember(message, phone);
-  const hello = name ? `You are registered, ${name}.\n` : "You are registered.\n";
-  await sendPlay(botToken, message.chat.id, `${hello}Click the button below to open Equb.`, signal);
+  const who = name ? `, <b>${escapeHtml(name)}</b>` : "";
+  await sendPlay(
+    botToken,
+    message.chat.id,
+    `✅ You are registered${who}.\n\nTap the button below to open Equb.\nከታች ያለውን በተን በመንካት እቁቡን ይክፈቱ።`,
+    signal,
+  );
 }
 
 function isStart(text) {
@@ -165,7 +188,7 @@ async function handle(botToken, message, signal) {
 async function poll(botToken, signal) {
   await call(botToken, "deleteWebhook", { drop_pending_updates: false }, signal);
   await call(botToken, "setMyCommands", {
-    commands: [{ command: "start", description: "Open Equb" }],
+    commands: [{ command: "start", description: "🚗 Open Equb" }],
   }, signal);
   await call(botToken, "setChatMenuButton", {
     menu_button: { type: "commands" },
