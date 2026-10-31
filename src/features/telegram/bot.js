@@ -77,13 +77,31 @@ async function remember(message, phone) {
 
 function openButton() {
   return {
-    keyboard: [[{ text: "Open Equb", web_app: { url: appUrl() } }]],
-    resize_keyboard: true,
+    inline_keyboard: [[{ text: "Open Equb", web_app: { url: appUrl() } }]],
   };
+}
+
+async function hideReplyKeyboard(botToken, chatId, signal) {
+  try {
+    const sent = await call(botToken, "sendMessage", {
+      chat_id: chatId,
+      text: "\u200b",
+      reply_markup: { remove_keyboard: true },
+    }, signal);
+    if (sent?.message_id != null) {
+      await call(botToken, "deleteMessage", {
+        chat_id: chatId,
+        message_id: sent.message_id,
+      }, signal);
+    }
+  } catch {
+    /* the phone button may already be gone */
+  }
 }
 
 async function sendOpen(botToken, chatId, name, signal) {
   const hello = name ? `Welcome back, ${name}.` : "Welcome back.";
+  await hideReplyKeyboard(botToken, chatId, signal);
   await call(botToken, "sendMessage", {
     chat_id: chatId,
     text: `${hello}\nTap Open Equb.`,
@@ -147,6 +165,9 @@ async function poll(botToken, signal) {
   await call(botToken, "deleteWebhook", { drop_pending_updates: false }, signal);
   await call(botToken, "setMyCommands", {
     commands: [{ command: "start", description: "Open Equb" }],
+  }, signal);
+  await call(botToken, "setChatMenuButton", {
+    menu_button: { type: "commands" },
   }, signal);
   console.log("Telegram bot is listening for /start.");
   let offset = 0;
