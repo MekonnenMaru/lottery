@@ -6,6 +6,7 @@ import { ensureAdmin } from "./src/features/admin/service.js";
 import { seedCatalog } from "./src/features/lotteries/seed.js";
 import { seedBanks } from "./src/features/banks/service.js";
 import { createApp } from "./src/app.js";
+import { startTelegramBot } from "./src/features/telegram/bot.js";
 import { appName } from "./src/util.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
@@ -38,6 +39,7 @@ async function start() {
   await seedBanks();
   await seedCatalog();
   await syncLotteryImages();
+  startTelegramBot();
 
   const port = Number(process.env.PORT) || 3000;
   const host = process.env.HOST || "127.0.0.1";
