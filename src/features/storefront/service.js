@@ -69,8 +69,9 @@ export async function storeMyTickets(phone) {
   const normalized = normalizePhone(phone);
   if (!normalized) return [];
   const rows = await all(`
-    SELECT o.id, o.status, o.ticket_numbers, o.created_at,
-           l.title, l.image_path, l.status AS lottery_status, t.ticket_number
+    SELECT o.id, o.lottery_id, o.status, o.ticket_numbers, o.created_at,
+           l.title, l.image_path, l.status AS lottery_status, l.winner_ticket_id,
+           t.id AS ticket_id, t.ticket_number
     FROM orders o
     JOIN lotteries l ON l.id = o.lottery_id
     LEFT JOIN tickets t ON t.order_id = o.id
@@ -87,6 +88,9 @@ export async function storeMyTickets(phone) {
       seen.add(key);
       const payment = paymentStatus(row.status);
       data.push({
+        lottery_id: String(row.lottery_id),
+        order_id: String(row.id),
+        ticket_id: row.ticket_id == null ? "" : String(row.ticket_id),
         title: row.title,
         image_url: row.image_path || null,
         ticket_number: padTicket(number),
@@ -94,6 +98,7 @@ export async function storeMyTickets(phone) {
         payment_status: payment,
         order_status: payment,
         lottery_status: row.lottery_status,
+        won: row.ticket_id != null && Number(row.ticket_id) === Number(row.winner_ticket_id),
       });
     }
   }

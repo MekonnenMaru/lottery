@@ -175,7 +175,13 @@ router.get("/tickets.php", wrap(async (req, res) => {
 }));
 
 router.get("/my-tickets.php", siteLimiter(30), wrap(async (req, res) => {
-  res.json({ success: true, data: await storeMyTickets(req.query.phone) });
+  const session = await readSession(req.cookies?.buyer_sid, "buyer");
+  const customer = await customerFromSession(session);
+  if (!customer?.phone) {
+    res.json({ success: true, signedIn: false, data: [] });
+    return;
+  }
+  res.json({ success: true, signedIn: true, data: await storeMyTickets(customer.phone) });
 }));
 
 router.get("/winners.php", wrap(async (req, res) => {

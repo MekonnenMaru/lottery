@@ -150,6 +150,9 @@ export function createApp() {
   app.get("/telegram.js", (req, res) => {
     res.type("js").set("Cache-Control", "no-store").sendFile(path.join(publicDir, "telegram.js"));
   });
+  app.get("/tickets.js", (req, res) => {
+    res.type("js").set("Cache-Control", "no-store").sendFile(path.join(publicDir, "tickets.js"));
+  });
   app.get("/", (req, res) => {
     res.type("html").set("Cache-Control", "no-store").send(htmlPage("index.html"));
   });
