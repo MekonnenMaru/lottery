@@ -99,12 +99,11 @@ async function hideReplyKeyboard(botToken, chatId, signal) {
   }
 }
 
-async function sendOpen(botToken, chatId, name, signal) {
-  const hello = name ? `Welcome back, ${name}.` : "Welcome back.";
+async function sendPlay(botToken, chatId, text, signal) {
   await hideReplyKeyboard(botToken, chatId, signal);
   await call(botToken, "sendMessage", {
     chat_id: chatId,
-    text: `${hello}\nTap Open Equb.`,
+    text,
     reply_markup: openButton(),
   }, signal);
 }
@@ -112,7 +111,7 @@ async function sendOpen(botToken, chatId, name, signal) {
 async function askPhone(botToken, chatId, signal) {
   await call(botToken, "sendMessage", {
     chat_id: chatId,
-    text: "Share your phone number to join Equb.",
+    text: "Please register by clicking the button below.\nበስልክ ቁጥርዎ ለመመዝገብ ከታች ያለውን በተን ይንኩ።",
     reply_markup: {
       keyboard: [[{ text: "Share phone number", request_contact: true }]],
       resize_keyboard: true,
@@ -124,7 +123,8 @@ async function askPhone(botToken, chatId, signal) {
 async function onStart(botToken, message, signal) {
   const row = await customer(message.from?.id);
   if (row) {
-    await sendOpen(botToken, message.chat.id, row.name, signal);
+    const name = row.name ? `Welcome back, ${row.name}.\n` : "";
+    await sendPlay(botToken, message.chat.id, `${name}Click the button below to open Equb.`, signal);
     return;
   }
   await askPhone(botToken, message.chat.id, signal);
@@ -145,7 +145,8 @@ async function onContact(botToken, message, signal) {
     return;
   }
   const name = await remember(message, phone);
-  await sendOpen(botToken, message.chat.id, name, signal);
+  const hello = name ? `You are registered, ${name}.\n` : "You are registered.\n";
+  await sendPlay(botToken, message.chat.id, `${hello}Click the button below to open Equb.`, signal);
 }
 
 function isStart(text) {
