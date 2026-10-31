@@ -3,3 +3,15 @@ node_modules/
 storage/
 public/uploads/
 public/assets/maraki.js
+cat >> .gitignore <<'EOF'
+
+# Hosting configuration
+.htaccess
+.user.ini
+.well-known/
+cgi-bin/
+php.ini
+stderr.log
+tmp/
+node_modules/
+EOF
