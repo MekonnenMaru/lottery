@@ -39,15 +39,17 @@ function customerHandle(username) {
 }
 
 function telegramUserId(payload) {
-  const text = String(payload?.id ?? payload?.sub ?? "").trim();
-  if (!/^\d{1,19}$/.test(text)) return "";
-  try {
-    const value = BigInt(text);
-    if (value < 1n || value > 9223372036854775807n) return "";
-  } catch {
-    return "";
+  for (const raw of [payload?.id, payload?.sub, payload?.user_id]) {
+    const text = String(raw ?? "").trim();
+    if (!/^\d{1,19}$/.test(text)) continue;
+    try {
+      const value = BigInt(text);
+      if (value >= 1n && value <= 9223372036854775807n) return text;
+    } catch {
+      /* try the next claim */
+    }
   }
-  return text;
+  return "";
 }
 
 async function saveCustomer({ telegramId, name, username, phone }) {
@@ -97,7 +99,7 @@ export async function completeTelegramOidc(idToken) {
   const telegramId = telegramUserId(payload);
   const phone = payload.phone_number;
   if (!telegramId) {
-    console.error("Telegram sign-in rejected: the token had no usable user id");
+    console.error(`Telegram sign-in rejected: user id missing (${Object.keys(payload).join(",")})`);
     throw httpError(400, "Telegram sign-in was rejected");
   }
   if (!phone || payload.phone_number_verified === false) {

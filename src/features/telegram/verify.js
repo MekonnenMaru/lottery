@@ -16,7 +16,13 @@ async function signingKeys(force) {
 
 function decode(part) {
   const pad = part.length % 4 === 0 ? "" : "=".repeat(4 - (part.length % 4));
-  return Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/") + pad);
+  return Buffer.from(part.replace(/-/g, "+").replace(/_/g, "/") + pad, "base64");
+}
+
+function reject(reason) {
+  const detail = String(reason).slice(0, 80);
+  console.error(`Telegram sign-in rejected: ${detail}`);
+  throw httpError(400, `Telegram sign-in was rejected (${detail})`);
 }
 
 const SIGNING_ALGS = new Set(["RS256", "ES256", "EdDSA", "ES256K"]);
@@ -31,44 +37,49 @@ function signedByTelegram(alg, key, data, signature) {
 }
 
 // Step 4. Trust the user only after Telegram's signature and claims check out.
-export async function verifyTelegramToken(idToken, clientId) {
-  const parts = String(idToken || "").split(".");
-  if (parts.length !== 3 || parts.some((part) => !part || part.length > 8000)) {
-    throw httpError(400, "Telegram sign-in was rejected");
+function publicKey(jwk) {
+  if (!jwk) return null;
+  const copy = { ...jwk };
+  delete copy.key_ops;
+  delete copy.ext;
+  try {
+    return crypto.createPublicKey({ key: copy, format: "jwk" });
+  } catch {
+    return null;
   }
+}
+
+export async function verifyTelegramToken(idToken, clientId) {
+  const parts = String(idToken || "").trim().split(".");
+  if (parts.length !== 3 || parts.some((part) => !part || part.length > 20000)) reject("token shape");
   let header;
   let payload;
   try {
     header = JSON.parse(decode(parts[0]).toString("utf8"));
     payload = JSON.parse(decode(parts[1]).toString("utf8"));
   } catch {
-    throw httpError(400, "Telegram sign-in was rejected");
+    reject("token unreadable");
   }
-  if (!header?.kid || !SIGNING_ALGS.has(header.alg)) {
-    throw httpError(400, "Telegram sign-in was rejected");
-  }
-  let keys = await signingKeys(false);
-  let jwk = keys.find((key) => key.kid === header.kid);
-  if (!jwk) {
-    keys = await signingKeys(true);
-    jwk = keys.find((key) => key.kid === header.kid);
-  }
-  let key;
-  try {
-    key = jwk ? crypto.createPublicKey({ key: jwk, format: "jwk" }) : null;
-  } catch {
-    key = null;
-  }
+  if (!header?.kid || !SIGNING_ALGS.has(header.alg)) reject(`algorithm ${header?.alg || "missing"}`);
   const data = Buffer.from(`${parts[0]}.${parts[1]}`);
-  if (!key || !signedByTelegram(header.alg, key, data, decode(parts[2]))) {
-    throw httpError(400, "Telegram sign-in was rejected");
+  const signature = decode(parts[2]);
+  let keys = await signingKeys(false);
+  let key = publicKey(keys.find((item) => item.kid === header.kid));
+  if (!key || !signedByTelegram(header.alg, key, data, signature)) {
+    keys = await signingKeys(true);
+    key = publicKey(keys.find((item) => item.kid === header.kid));
+    if (!key || !signedByTelegram(header.alg, key, data, signature)) {
+      reject(`signature kid ${header.kid}`);
+    }
   }
   const now = Math.floor(Date.now() / 1000);
-  const audience = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
-  if (payload.iss !== ISSUER || !audience.map(String).includes(String(clientId))) {
-    throw httpError(400, "Telegram sign-in was rejected");
-  }
-  if (!Number.isFinite(payload.exp) || payload.exp < now - 60) throw httpError(400, "This sign-in expired");
-  if (Number.isFinite(payload.nbf) && payload.nbf > now + 60) throw httpError(400, "Telegram sign-in was rejected");
+  const issuer = String(payload.iss || "").replace(/\/+$/, "");
+  if (issuer !== ISSUER) reject(`issuer ${issuer || "missing"}`);
+  const audience = (Array.isArray(payload.aud) ? payload.aud : [payload.aud]).map(String);
+  if (!audience.includes(String(clientId))) reject(`audience ${audience.join(",") || "missing"}`);
+  const exp = Number(payload.exp);
+  if (!Number.isFinite(exp) || exp < now - 300) throw httpError(400, "This sign-in expired");
+  const nbf = Number(payload.nbf);
+  if (Number.isFinite(nbf) && nbf > now + 300) reject("not active yet");
   return payload;
 }

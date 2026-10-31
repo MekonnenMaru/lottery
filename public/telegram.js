@@ -217,7 +217,7 @@ function loadSdk() {
 function askTelegram({ clientId: id, nonce }) {
   return new Promise((resolve) => {
     window.Telegram.Login.auth({
-      client_id: Number(id),
+      client_id: /^\d+$/.test(String(id)) ? Number(id) : id,
       scope: ["profile", "phone"],
       nonce,
       lang: lang() === "am" ? "am" : "en",
