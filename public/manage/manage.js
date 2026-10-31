@@ -8,6 +8,7 @@ const viewHash = {
   payments: "payment",
   banks: "banks",
   winners: "winners",
+  customers: "customers",
   report: "report",
 };
 const hashView = {
@@ -20,6 +21,8 @@ const hashView = {
   bank: "banks",
   winners: "winners",
   winner: "winners",
+  customers: "customers",
+  customer: "customers",
   report: "report",
 };
 
@@ -75,6 +78,7 @@ const state = {
   },
   banks: { rows: [], search: "", status: "all", page: 1, pageSize: 10 },
   winners: { rows: [], search: "", page: 1, pageSize: 10 },
+  customers: { rows: [], search: "", page: 1, pageSize: 10 },
   report: {
     kind: "payments",
     from: "",
@@ -219,6 +223,7 @@ function shell() {
     ["payments", "Payments", state.pending ? String(state.pending) : "", "card"],
     ["banks", "Banks", "", "bank"],
     ["winners", "Winners", "", "trophy"],
+    ["customers", "Customers", "", "user"],
     ["report", "Report", "", "file"],
   ];
   const titles = {
@@ -227,6 +232,7 @@ function shell() {
     payments: ["Payments", "Receipts waiting for a decision."],
     banks: ["Banks", "Accounts buyers transfer to."],
     winners: ["Winners", "Announced results."],
+    customers: ["Customers", "People registered with Telegram, and the orders they placed."],
     report: ["Report", "Review the rows, then export them."],
   };
   const [title, blurb] = titles[state.view] || titles.dashboard;
@@ -282,6 +288,7 @@ function viewBody() {
   if (state.view === "payments") return paymentsView();
   if (state.view === "banks") return banksView();
   if (state.view === "winners") return winnersView();
+  if (state.view === "customers") return customersView();
   if (state.view === "report") return reportView();
   return drawsView();
 }
@@ -764,6 +771,62 @@ function banksView() {
     ${pagerHtml(info, "page")}`;
 }
 
+function customersView() {
+  const bag = state.customers;
+  const filtered = bag.rows.filter((row) => match(row, bag.search, ["id", "name", "username", "phone", "telegram_id"]));
+  const info = pageSlice(filtered, bag);
+  return `
+    ${toolbar({
+      placeholder: "Filter by name, phone, or Telegram id",
+      extra: `<div class="report-actions">
+        <button type="button" class="primary" data-act="download-customers" data-format="csv">CSV</button>
+        <button type="button" class="primary" data-act="download-customers" data-format="xls">Excel</button>
+      </div>`,
+    })}
+    ${tableHtml({
+      name: "Customers",
+      empty: "No customers match this filter.",
+      columns: [
+        { label: "Name", cell: (row) => `<div class="who"><div><strong>${esc(row.name)}</strong><span>${esc(row.username ? `@${row.username}` : "—")}</span></div></div>` },
+        { label: "Phone", cell: (row) => esc(row.phone) },
+        { label: "Orders", cell: (row) => esc(row.orders) },
+        { label: "Tickets", cell: (row) => esc(row.tickets) },
+        { label: "Approved", cell: (row) => esc(money(row.approved)) },
+        { label: "Registered", cell: (row) => esc(when(row.created_at)) },
+      ],
+      rows: info.rows,
+      actions: (row) => iconSlots([
+        iconButton({ act: "view-customer", id: row.id, label: "History", name: "eye" }),
+      ]),
+    })}
+    ${pagerHtml(info, "page")}`;
+}
+
+function customerModal() {
+  const row = state.modal.customer;
+  const orders = state.modal.orders || [];
+  if (state.modal.loading || !row) {
+    return `<div class="modal-card"><h2>Customer</h2><p class="muted">Loading history…</p></div>`;
+  }
+  const history = orders.length
+    ? `<div class="table-wrap"><table aria-label="Customer orders"><thead><tr><th scope="col">When</th><th scope="col">Lottery</th><th scope="col">Tickets</th><th scope="col">Amount</th><th scope="col">Status</th></tr></thead><tbody>${orders.map((order) => `<tr><td>${esc(when(order.created_at))}</td><td>${esc(order.title)}</td><td>${esc(order.tickets || "—")}</td><td>${esc(money(order.amount))}</td><td>${badge(order.status)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="muted">No orders yet.</p>`;
+  return `
+    <div class="modal-card wide">
+      <h2>${esc(row.name)}</h2>
+      <dl>
+        <div><dt>Phone</dt><dd>${esc(row.phone)}</dd></div>
+        <div><dt>Telegram</dt><dd>${esc(row.username ? `@${row.username}` : row.telegram_id)}</dd></div>
+        <div><dt>Registered</dt><dd>${esc(when(row.created_at))}</dd></div>
+        <div><dt>Orders</dt><dd>${esc(row.orders)}</dd></div>
+        <div><dt>Tickets</dt><dd>${esc(row.tickets)}</dd></div>
+        <div><dt>Approved</dt><dd>${esc(money(row.approved))}</dd></div>
+      </dl>
+      ${history}
+      <div class="modal-actions"><button type="button" class="ghost" data-act="close-modal">Close</button></div>
+    </div>`;
+}
+
 function winnersView() {
   const bag = state.winners;
   const filtered = bag.rows.filter((row) => match(row, bag.search, ["id", "lottery_id", "lottery_title", "winner_name", "winning_ticket_number", "winner_phone"]));
@@ -940,6 +1003,7 @@ function modalHtml() {
     confirm: confirmModal,
     payment: paymentModal,
     winner: winnerModal,
+    customer: customerModal,
     photo: photoModal,
     password: passwordForm,
   }[state.modal.kind];
@@ -1206,6 +1270,14 @@ async function refresh() {
     const board = await request("/api/dashboard.php");
     if (seq !== loadSeq) return;
     if (board.res.ok && board.body.stats) state.pending = Number(board.body.stats.pendingPayments || 0);
+    return;
+  }
+  if (state.view === "customers") {
+    const { res, body } = await request("/api/admin-customers.php");
+    if (seq !== loadSeq) return;
+    unauthorized(res);
+    if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load customers"));
+    state.customers.rows = body.data || [];
     return;
   }
   if (state.view === "report") {
@@ -1586,6 +1658,45 @@ async function onClick(event) {
           status: active ? "inactive" : "active",
         },
       };
+      render();
+      return;
+    }
+    if (act === "download-customers") {
+      const params = new URLSearchParams({
+        format: el.dataset.format || "csv",
+        search: state.customers.search,
+        tz: String(new Date().getTimezoneOffset()),
+      });
+      const res = await fetch(`/api/admin-customers.php?${params}`, { credentials: "same-origin" });
+      unauthorized(res);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(messageOf(body, "Could not export customers"));
+      }
+      const blob = new Blob([await res.arrayBuffer()], { type: res.headers.get("Content-Type") || "" });
+      const link = document.createElement("a");
+      const matchName = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+      link.href = URL.createObjectURL(blob);
+      link.download = matchName?.[1] || `customers.${el.dataset.format || "csv"}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+      state.error = "";
+      state.notice = "Customers downloaded";
+      render();
+      return;
+    }
+    if (act === "view-customer") {
+      const known = state.customers.rows.find((row) => String(row.id) === String(id));
+      state.modal = { kind: "customer", loading: true, customer: known || null, orders: [] };
+      state.error = "";
+      render();
+      const { res, body } = await request(`/api/admin-customer.php?id=${encodeURIComponent(id)}`);
+      unauthorized(res);
+      if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load this customer"));
+      if (state.modal?.kind !== "customer") return;
+      state.modal = { kind: "customer", loading: false, customer: body.customer, orders: body.orders || [] };
       render();
       return;
     }

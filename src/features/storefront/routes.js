@@ -18,6 +18,7 @@ import {
   setLotteryHidden,
   updateLottery,
 } from "../lotteries/service.js";
+import { customerHistory, exportCustomers, listCustomers } from "../customers/service.js";
 import { buildReport, reportData } from "../reports/service.js";
 import {
   beginTelegramOidc,
@@ -395,6 +396,24 @@ router.post("/admin-hide-lottery.php", staff, wrap(async (req, res) => {
   const hidden = req.body?.hidden === true || req.body?.hidden === 1 || req.body?.hidden === "1";
   await setLotteryHidden(id, hidden);
   res.json({ success: true });
+}));
+
+router.get("/admin-customers.php", staff, wrap(async (req, res) => {
+  if (req.query.format === "csv" || req.query.format === "xls") {
+    const file = await exportCustomers(req.query);
+    res.set("Content-Type", file.type);
+    res.set("Content-Disposition", `attachment; filename="${file.name}"`);
+    res.set("Cache-Control", "no-store");
+    res.send(file.body);
+    return;
+  }
+  res.json({ success: true, data: await listCustomers() });
+}));
+
+router.get("/admin-customer.php", staff, wrap(async (req, res) => {
+  const id = idOf(req.query.id);
+  if (!id) throw httpError(404, "Customer not found");
+  res.json({ success: true, ...(await customerHistory(id)) });
 }));
 
 router.get("/admin-winners.php", staff, wrap(async (req, res) => {
