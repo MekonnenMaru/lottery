@@ -48,6 +48,18 @@ function buyerScript() {
         'new URLSearchParams(window.location.search).get("phone")||localStorage.getItem("maraki_phone")||""',
       )
       .replaceAll(
+        'a=m5()||"Phone number not available"',
+        "a=m5()",
+      )
+      .replaceAll(
+        'className:"space-y-6 flex-1",children:N.jsx(me.div,{initial:{opacity:0,y:-10}',
+        'className:"space-y-6 flex-1",children:a?N.jsx(me.div,{initial:{opacity:0,y:-10}',
+      )
+      .replaceAll(
+        'children:a})]})]})})}),N.jsx(me.div,{initial:{opacity:0}',
+        'children:a})]})]})}):null}),N.jsx(me.div,{initial:{opacity:0}',
+      )
+      .replaceAll(
         'children:"User Phone Number"',
         'children:localStorage.getItem("maraki_name")||"User Phone Number"',
       )

@@ -58,6 +58,16 @@ style.textContent = `
   padding: 12px 14px;
   cursor: pointer;
 }
+.tg-panel button.tg-go:disabled { cursor: wait; opacity: 0.8; }
+.tg-panel .tg-spin {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(17, 17, 17, 0.25);
+  border-top-color: #111;
+  border-radius: 50%;
+  animation: tg-spin 0.7s linear infinite;
+}
+@keyframes tg-spin { to { transform: rotate(360deg); } }
 .tg-panel button.tg-out {
   margin-left: auto;
   border: 0;
@@ -72,13 +82,13 @@ style.textContent = `
 document.head.appendChild(style);
 
 const plane = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>`;
+const spinner = `<span class="tg-spin" aria-hidden="true"></span>`;
 
 const copy = {
   en: {
     signIn: "Sign in with Telegram",
     signOut: "Sign out",
     signed: "Signed in with Telegram",
-    hint: "Your name and phone number come from Telegram.",
     opening: "Opening Telegram…",
     closed: "Telegram was closed before sign-in finished.",
   },
@@ -86,7 +96,6 @@ const copy = {
     signIn: "በቴሌግራም ይግቡ",
     signOut: "ውጣ",
     signed: "በቴሌግራም ገብተዋል",
-    hint: "ስም እና ስልክ ቁጥር ከቴሌግራም ይመጣሉ።",
     opening: "ቴሌግራም እየተከፈተ ነው…",
     closed: "መግቢያው ከመጠናቀቁ በፊት ቴሌግራም ተዘግቷል።",
   },
@@ -94,7 +103,6 @@ const copy = {
     signIn: "Telegram'n seeni",
     signOut: "Ba'i",
     signed: "Telegram'n seentaniittu",
-    hint: "Maqaan fi lakkoofsi bilbilaa Telegram irraa dhufa.",
     opening: "Telegram banamaa jira…",
     closed: "Telegram cufame osoo seenuun hin xumuramin.",
   },
@@ -103,6 +111,7 @@ const copy = {
 let clientId = "";
 let currentUser = null;
 let currentNote = "";
+let busy = false;
 let queued = false;
 
 function lang() {
@@ -136,9 +145,10 @@ function scheduleSync() {
   });
 }
 
-function view(user, note) {
+function view(user, note, waiting = false) {
   currentUser = user || null;
   currentNote = note || "";
+  busy = Boolean(waiting);
   const message = currentNote ? text(currentNote) : "";
   if (currentUser) {
     panel.innerHTML = `<div class="tg-row"><span class="tg-mark">${plane}</span><strong></strong><button type="button" class="tg-out"></button></div>`;
@@ -147,14 +157,16 @@ function view(user, note) {
     button.textContent = text("signOut");
     button.addEventListener("click", signOut);
   } else {
-    panel.innerHTML = `<div class="tg-row"><span class="tg-mark">${plane}</span><strong></strong></div><button type="button" class="tg-go">${plane}<span></span></button>${message ? `<p class="tg-note"></p>` : `<p class="tg-hint"></p>`}`;
+    panel.innerHTML = `<div class="tg-row"><span class="tg-mark">${plane}</span><strong></strong></div><button type="button" class="tg-go">${busy ? spinner : plane}<span></span></button>${message ? `<p class="tg-note"></p>` : ""}`;
     panel.querySelector("strong").textContent = "Telegram";
-    panel.querySelector(".tg-go span").textContent = text("signIn");
-    panel.querySelector(".tg-go").addEventListener("click", () => {
+    const button = panel.querySelector(".tg-go");
+    button.disabled = busy;
+    button.querySelector("span:last-child").textContent = busy ? text("opening") : text("signIn");
+    button.addEventListener("click", () => {
       signIn().catch((error) => view(null, error.message));
     });
-    const line = panel.querySelector(".tg-note, .tg-hint");
-    line.textContent = message || text("hint");
+    const line = panel.querySelector(".tg-note");
+    if (line) line.textContent = message;
   }
   scheduleSync();
 }
@@ -215,11 +227,12 @@ function askTelegram({ clientId: id, nonce }) {
 
 // 1 click, 2 Telegram asks, 3 id token comes back, 4–6 the server checks it and starts the session.
 async function signIn() {
+  if (busy) return;
   if (!clientId) {
     view(null, "Add the Telegram client id from BotFather, then restart the app.");
     return;
   }
-  view(null, "opening");
+  view(null, "", true);
   const started = await read("/api/telegram-oidc.php", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -253,7 +266,7 @@ async function signOut() {
 }
 
 document.addEventListener("change", (event) => {
-  if (event.target instanceof HTMLSelectElement && event.target.closest("header")) view(currentUser, currentNote);
+  if (event.target instanceof HTMLSelectElement && event.target.closest("header")) view(currentUser, currentNote, busy);
 });
 window.addEventListener("resize", scheduleSync);
 const root = document.getElementById("root");
