@@ -1,5 +1,6 @@
 import { all, countOf, get, iso } from "../../db.js";
-import { httpError, intValue, maskPhone, normalizePhone } from "../../util.js";
+import { NAIROBI_TZ_MINUTES } from "../../time.js";
+import { httpError, intValue, maskPhone, normalizePhone, parseWhen } from "../../util.js";
 import { listBanks } from "../banks/service.js";
 import { expireReservations } from "../orders/service.js";
 
@@ -218,9 +219,7 @@ const DASHBOARD_STATUSES = {
 
 function parseInstant(value) {
   if (value === undefined || value === null || value === "") return null;
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return null;
-  return date;
+  return parseWhen(value);
 }
 
 function dashboardQuery(query) {
@@ -235,13 +234,7 @@ function dashboardQuery(query) {
   const bank = query.bank && query.bank !== "all" ? intValue(query.bank, 1, 1_000_000_000) : null;
   if (query.bank && query.bank !== "all" && !bank) throw httpError(400, "Choose a bank");
   const status = DASHBOARD_STATUSES[query.status] ? query.status : "all";
-  let tz = 0;
-  if (query.tz !== undefined && query.tz !== "") {
-    const parsed = intValue(query.tz, -14 * 60, 14 * 60);
-    if (parsed === null) throw httpError(400, "Choose a valid time zone");
-    tz = parsed;
-  }
-  return { from, to, lottery, bank, status, tz };
+  return { from, to, lottery, bank, status, tz: NAIROBI_TZ_MINUTES };
 }
 
 function orderWhere(filter, statuses, bounds = filter) {

@@ -203,7 +203,12 @@ function picture(url) {
 function when(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return date.toLocaleDateString(undefined, {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function kind(ticket) {
@@ -223,9 +228,9 @@ function matches(ticket) {
   if (!needle) return true;
   const date = new Date(ticket.created_at);
   const dates = Number.isNaN(date.getTime()) ? [] : [
-    date.toISOString().slice(0, 10),
-    date.toLocaleDateString(),
-    date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
+    new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" }).format(date),
+    date.toLocaleDateString(undefined, { timeZone: "Africa/Nairobi" }),
+    date.toLocaleDateString(undefined, { timeZone: "Africa/Nairobi", month: "long", day: "numeric", year: "numeric" }),
   ];
   const number = String(ticket.ticket_number || "");
   const plain = String(Number(number));

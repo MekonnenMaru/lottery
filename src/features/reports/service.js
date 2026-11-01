@@ -1,5 +1,6 @@
 import { all } from "../../db.js";
-import { appName, httpError, intValue } from "../../util.js";
+import { NAIROBI_TZ_MINUTES } from "../../time.js";
+import { appName, httpError, intValue, parseWhen } from "../../util.js";
 import { expireReservations } from "../orders/service.js";
 import { renderReport } from "./files.js";
 
@@ -15,9 +16,7 @@ const LOTTERY_STATUS = new Set(["all", "active", "completed", "hidden"]);
 
 function parseInstant(value) {
   if (value === undefined || value === null || value === "") return null;
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return null;
-  return date;
+  return parseWhen(value);
 }
 
 function stamp(value, tzMinutes) {
@@ -47,13 +46,7 @@ function filters(query) {
   if (from && to && from > to) throw httpError(400, "The start is after the end");
   const lottery = query.lottery && query.lottery !== "all" ? intValue(query.lottery, 1, 1_000_000_000) : null;
   if (query.lottery && query.lottery !== "all" && !lottery) throw httpError(400, "Choose a lottery");
-  let tz = 0;
-  if (query.tz !== undefined && query.tz !== "") {
-    const parsed = intValue(query.tz, -14 * 60, 14 * 60);
-    if (parsed === null) throw httpError(400, "Choose a valid time zone");
-    tz = parsed;
-  }
-  return { from, to, lottery, tz };
+  return { from, to, lottery, tz: NAIROBI_TZ_MINUTES };
 }
 
 async function paymentRows(filter, status) {

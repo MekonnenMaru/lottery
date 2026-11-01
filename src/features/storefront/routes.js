@@ -5,6 +5,7 @@ import { Router } from "express";
 import { cookieOptions, siteLimiter } from "../../http.js";
 import { lotteryImageDir, receiptDir } from "../../paths.js";
 import { lotteryUpload, screenshotUpload } from "../../uploads.js";
+import { clockPayload } from "../../time.js";
 import { httpError, intValue } from "../../util.js";
 import { changeAdminPassword, findAdmin, findAdminById } from "../admin/service.js";
 import { createSession, destroySession, readSession } from "../auth/service.js";
@@ -132,6 +133,10 @@ function lotteryBody(body) {
     hidden: body?.hidden,
   };
 }
+
+router.get("/time.php", wrap(async (req, res) => {
+  res.json(clockPayload());
+}));
 
 router.get("/lotteries.php", wrap(async (req, res) => {
   res.json({ success: true, data: await storeLotteries() });

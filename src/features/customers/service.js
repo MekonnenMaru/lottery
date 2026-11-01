@@ -1,4 +1,5 @@
 import { all, get, iso } from "../../db.js";
+import { NAIROBI_TZ_MINUTES } from "../../time.js";
 import { appName, httpError } from "../../util.js";
 import { renderReport } from "../reports/files.js";
 
@@ -73,8 +74,7 @@ export async function listCustomers() {
 export async function exportCustomers(query) {
   const format = query.format === "xls" || query.format === "csv" ? query.format : "";
   if (!format) throw httpError(400, "Choose CSV or Excel");
-  const tz = Number(query.tz);
-  const tzMinutes = Number.isFinite(tz) ? tz : 0;
+  const tzMinutes = NAIROBI_TZ_MINUTES;
   const rows = wanted(await loadCustomers(), query.search);
   const columns = [
     { label: "ID", number: true, width: 40 },

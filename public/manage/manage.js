@@ -122,17 +122,50 @@ function safeSrc(url) {
   return "";
 }
 
+const ZONE = "Africa/Nairobi";
+const OFFSET = "+03:00";
+
+function nairobiParts(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const map = {};
+  for (const part of new Intl.DateTimeFormat("en-GB", {
+    timeZone: ZONE,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(date)) {
+    if (part.type !== "literal") map[part.type] = part.value;
+  }
+  return map;
+}
+
+function asNairobi(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const wall = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(text) ? `${text}:00${OFFSET}` : text;
+  const date = new Date(wall);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function when(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  return date.toLocaleString(undefined, {
+    timeZone: ZONE,
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function localInput(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  const parts = nairobiParts(value);
+  if (!parts) return "";
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 function money(value) {
@@ -293,44 +326,50 @@ function viewBody() {
   return drawsView();
 }
 
-function startOfDay(date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
+function shiftDate(parts, days) {
+  const utc = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) + days));
+  const pad = (part) => String(part).padStart(2, "0");
+  return {
+    year: String(utc.getUTCFullYear()),
+    month: pad(utc.getUTCMonth() + 1),
+    day: pad(utc.getUTCDate()),
+  };
 }
 
 function rangeFor(preset) {
-  const now = new Date();
-  const end = new Date(now);
-  end.setHours(23, 59, 0, 0);
-  if (preset === "today") return { from: startOfDay(now), to: end };
-  if (preset === "7d") {
-    const from = startOfDay(now);
-    from.setDate(from.getDate() - 6);
-    return { from, to: end };
-  }
-  if (preset === "30d") {
-    const from = startOfDay(now);
-    from.setDate(from.getDate() - 29);
-    return { from, to: end };
-  }
-  if (preset === "month") return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: end };
-  if (preset === "year") return { from: new Date(now.getFullYear(), 0, 1), to: end };
-  return { from: null, to: null };
+  const parts = nairobiParts(new Date());
+  if (!parts) return { from: "", to: "" };
+  const end = `${parts.year}-${parts.month}-${parts.day}T23:59`;
+  const start = (day) => `${day.year}-${day.month}-${day.day}T00:00`;
+  if (preset === "today") return { from: start(parts), to: end };
+  if (preset === "7d") return { from: start(shiftDate(parts, -6)), to: end };
+  if (preset === "30d") return { from: start(shiftDate(parts, -29)), to: end };
+  if (preset === "month") return { from: `${parts.year}-${parts.month}-01T00:00`, to: end };
+  if (preset === "year") return { from: `${parts.year}-01-01T00:00`, to: end };
+  return { from: "", to: "" };
 }
 
 function ensureBoardRange() {
   if (state.board.preset === "custom" || state.board.preset === "all") return;
   const range = rangeFor(state.board.preset);
-  state.board.from = localInput(range.from);
-  state.board.to = localInput(range.to);
+  state.board.from = range.from;
+  state.board.to = range.to;
 }
 
 function periodCaption() {
   if (state.board.preset === "all" && !state.board.from && !state.board.to) return "Every payment";
-  const fmt = (value) => new Date(value).toLocaleString(undefined, {
-    day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
-  });
+  const fmt = (value) => {
+    const date = asNairobi(value);
+    if (!date) return "";
+    return date.toLocaleString(undefined, {
+      timeZone: ZONE,
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
   if (state.board.from && state.board.to) return `${fmt(state.board.from)} – ${fmt(state.board.to)}`;
   if (state.board.from) return `From ${fmt(state.board.from)}`;
   if (state.board.to) return `Until ${fmt(state.board.to)}`;
@@ -362,18 +401,18 @@ function deltaClass(summary) {
 
 function pointLabel(key, grain) {
   if (grain === "hour") {
-    const date = new Date(`${key}:00`);
+    const date = new Date(`${key}:00${OFFSET}`);
     if (Number.isNaN(date.getTime())) return key;
-    return date.toLocaleString(undefined, { hour: "numeric" });
+    return date.toLocaleString(undefined, { timeZone: ZONE, hour: "numeric" });
   }
   if (grain === "month") {
-    const date = new Date(`${key}-01T00:00`);
+    const date = new Date(`${key}-01T00:00${OFFSET}`);
     if (Number.isNaN(date.getTime())) return key;
-    return date.toLocaleString(undefined, { month: "short", year: "numeric" });
+    return date.toLocaleString(undefined, { timeZone: ZONE, month: "short", year: "numeric" });
   }
-  const date = new Date(`${key}T00:00`);
+  const date = new Date(`${key}T00:00${OFFSET}`);
   if (Number.isNaN(date.getTime())) return key;
-  return date.toLocaleString(undefined, { day: "numeric", month: "short" });
+  return date.toLocaleString(undefined, { timeZone: ZONE, day: "numeric", month: "short" });
 }
 
 function showPointLabel(index, total) {
@@ -854,11 +893,9 @@ function winnersView() {
 
 function ensureReportRange() {
   if (state.report.ready) return;
-  const now = new Date();
-  const end = new Date(now);
-  end.setHours(23, 59, 0, 0);
-  state.report.from = localInput(new Date(now.getFullYear(), now.getMonth(), 1));
-  state.report.to = localInput(end);
+  const parts = nairobiParts(new Date());
+  state.report.from = parts ? `${parts.year}-${parts.month}-01T00:00` : "";
+  state.report.to = parts ? `${parts.year}-${parts.month}-${parts.day}T23:59` : "";
   state.report.ready = true;
 }
 
@@ -879,10 +916,9 @@ function reportParams(format) {
     format,
     status: bag.status,
     lottery: bag.lottery,
-    tz: String(new Date().getTimezoneOffset()),
   });
-  if (bag.from) params.set("from", new Date(bag.from).toISOString());
-  if (bag.to) params.set("to", new Date(bag.to).toISOString());
+  if (bag.from) params.set("from", asNairobi(bag.from).toISOString());
+  if (bag.to) params.set("to", asNairobi(bag.to).toISOString());
   return params;
 }
 
@@ -1221,10 +1257,9 @@ async function refresh() {
       lottery: state.board.lottery,
       bank: state.board.bank,
       status: state.board.status,
-      tz: String(new Date().getTimezoneOffset()),
     });
-    if (state.board.from) params.set("from", new Date(state.board.from).toISOString());
-    if (state.board.to) params.set("to", new Date(state.board.to).toISOString());
+    if (state.board.from) params.set("from", asNairobi(state.board.from).toISOString());
+    if (state.board.to) params.set("to", asNairobi(state.board.to).toISOString());
     const { res, body } = await request(`/api/dashboard.php?${params}`);
     if (seq !== loadSeq) return;
     unauthorized(res);
@@ -1287,7 +1322,7 @@ async function refresh() {
     unauthorized(list.res);
     if (!list.res.ok || list.body.success === false) throw new Error(messageOf(list.body, "Could not load lotteries"));
     state.report.lotteries = (list.body.data || []).map((row) => ({ id: String(row.id), title: row.title }));
-    if (state.report.from && state.report.to && new Date(state.report.from) > new Date(state.report.to)) {
+    if (state.report.from && state.report.to && asNairobi(state.report.from) > asNairobi(state.report.to)) {
       state.error = "The start is after the end";
       state.report.rows = [];
       state.report.columns = [];
@@ -1468,7 +1503,7 @@ async function onClick(event) {
         state.report.lottery = document.getElementById("report-lottery").value;
         state.report.status = document.getElementById("report-status").value;
       }
-      if (state.report.from && state.report.to && new Date(state.report.from) > new Date(state.report.to)) {
+      if (state.report.from && state.report.to && asNairobi(state.report.from) > asNairobi(state.report.to)) {
         state.error = "The start is after the end";
         render();
         return;
@@ -1665,7 +1700,6 @@ async function onClick(event) {
       const params = new URLSearchParams({
         format: el.dataset.format || "csv",
         search: state.customers.search,
-        tz: String(new Date().getTimezoneOffset()),
       });
       const res = await fetch(`/api/admin-customers.php?${params}`, { credentials: "same-origin" });
       unauthorized(res);
@@ -1755,7 +1789,7 @@ function onChange(event) {
     if (event.target.id === "report-kind") state.report.status = "all";
     state.report.page = 1;
     state.error = "";
-    if (state.report.from && state.report.to && new Date(state.report.from) > new Date(state.report.to)) {
+    if (state.report.from && state.report.to && asNairobi(state.report.from) > asNairobi(state.report.to)) {
       state.error = "The start is after the end";
       state.report.rows = [];
       state.report.columns = [];
@@ -1806,7 +1840,7 @@ function onChange(event) {
     if (id === "from" || id === "to") {
       state.board.preset = "custom";
       state.board[id] = event.target.value;
-      if (state.board.from && state.board.to && new Date(state.board.from) > new Date(state.board.to)) {
+      if (state.board.from && state.board.to && asNairobi(state.board.from) > asNairobi(state.board.to)) {
         state.error = "The start is after the end";
         render();
         return;

@@ -151,6 +151,9 @@ export function createApp() {
   app.get(["/assets/maraki.js", "/assets/index-DnQ-JC9S.js"], (req, res) => {
     res.type("js").set("Cache-Control", "no-store").send(buyerScript());
   });
+  app.get("/time.js", (req, res) => {
+    res.type("js").set("Cache-Control", "no-store").sendFile(path.join(publicDir, "time.js"));
+  });
   app.get("/telegram.js", (req, res) => {
     res.type("js").set("Cache-Control", "no-store").sendFile(path.join(publicDir, "telegram.js"));
   });
