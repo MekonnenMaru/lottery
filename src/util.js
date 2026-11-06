@@ -1,9 +1,3 @@
-export function appName() {
-  const name = String(process.env.APP_NAME || "Ekub").trim().replace(/\s+/g, " ");
-  if (!name || name.length > 40) return "Ekub";
-  return name;
-}
-
 export function httpError(status, message) {
   const error = new Error(message);
   error.status = status;

@@ -30,6 +30,8 @@ import {
   telegramClientId,
 } from "../telegram/service.js";
 import { approveOrder, createStoreOrder, rejectOrder } from "../orders/service.js";
+import { getBrandingSettings, updateBrandingSettings } from "../settings/service.js";
+import { invalidateBuyerBundle, publishBuyerBundle } from "./buyer-bundle.js";
 import {
   storeBanks,
   storeDashboard,
@@ -257,6 +259,17 @@ router.get("/admin-session.php", staff, wrap(async (req, res) => {
 router.post("/admin-password.php", staff, siteLimiter(10), wrap(async (req, res) => {
   await changeAdminPassword(req.admin.id, req.body?.current_password, req.body?.new_password);
   res.json({ success: true });
+}));
+
+router.get("/admin-settings.php", staff, wrap(async (req, res) => {
+  res.json({ success: true, branding: await getBrandingSettings() });
+}));
+
+router.post("/admin-settings.php", staff, siteLimiter(20), wrap(async (req, res) => {
+  const branding = await updateBrandingSettings(req.body || {});
+  invalidateBuyerBundle();
+  publishBuyerBundle();
+  res.json({ success: true, branding });
 }));
 
 router.post("/admin-logout.php", staff, wrap(async (req, res) => {

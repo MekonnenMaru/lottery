@@ -1,6 +1,7 @@
 import { all } from "../../db.js";
 import { NAIROBI_TZ_MINUTES } from "../../time.js";
-import { appName, httpError, intValue, parseWhen } from "../../util.js";
+import { httpError, intValue, parseWhen } from "../../util.js";
+import { appName } from "../settings/service.js";
 import { expireReservations } from "../orders/service.js";
 import { renderReport } from "./files.js";
 

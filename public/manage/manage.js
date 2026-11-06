@@ -1,4 +1,4 @@
-const appName = document.querySelector('meta[name="app-name"]').content;
+let appName = document.querySelector('meta[name="app-name"]').content;
 const root = document.querySelector("#root");
 const pageSizes = [5, 10, 25, 50];
 
@@ -10,6 +10,7 @@ const viewHash = {
   winners: "winners",
   customers: "customers",
   report: "report",
+  settings: "settings",
 };
 const hashView = {
   dashboard: "dashboard",
@@ -24,6 +25,9 @@ const hashView = {
   customers: "customers",
   customer: "customers",
   report: "report",
+  settings: "settings",
+  setting: "settings",
+  branding: "settings",
 };
 
 function viewFromHash() {
@@ -95,6 +99,13 @@ const state = {
     page: 1,
     pageSize: 10,
     loading: false,
+  },
+  settings: {
+    app_name: appName,
+    developer_name: "Maraki Tech",
+    developer_url: "https://marakitech.et",
+    credit_prefix: "Developed by",
+    loaded: false,
   },
   modal: null,
 };
@@ -258,6 +269,7 @@ function shell() {
     ["winners", "Winners", "", "trophy"],
     ["customers", "Customers", "", "user"],
     ["report", "Report", "", "file"],
+    ["settings", "Settings", "", "gear"],
   ];
   const titles = {
     dashboard: ["Dashboard", "Collected, waiting, and rejected money for the period you choose."],
@@ -267,6 +279,7 @@ function shell() {
     winners: ["Winners", "Announced results."],
     customers: ["Customers", "People registered with Telegram, and the orders they placed."],
     report: ["Report", "Review the rows, then export them."],
+    settings: ["Settings", "App name and public credit shown to customers."],
   };
   const [title, blurb] = titles[state.view] || titles.dashboard;
   const menuMark = state.menuOpen
@@ -323,7 +336,24 @@ function viewBody() {
   if (state.view === "winners") return winnersView();
   if (state.view === "customers") return customersView();
   if (state.view === "report") return reportView();
+  if (state.view === "settings") return settingsView();
   return drawsView();
+}
+
+function settingsView() {
+  const bag = state.settings;
+  return `
+    <form id="settings-form" class="panel settings-form">
+      <h2>Branding</h2>
+      <p class="muted">These names appear on the customer site, staff panel, reports, and the developer credit.</p>
+      <label>App name <input name="app_name" required maxlength="40" value="${esc(bag.app_name)}"></label>
+      <label>Credit line <input name="credit_prefix" maxlength="40" value="${esc(bag.credit_prefix)}" placeholder="Developed by"></label>
+      <label>Developer name <input name="developer_name" required maxlength="60" value="${esc(bag.developer_name)}"></label>
+      <label>Developer URL <input name="developer_url" type="url" required maxlength="200" value="${esc(bag.developer_url)}" placeholder="https://marakitech.et"></label>
+      <div class="toolbar">
+        <button class="primary" type="submit">Save branding</button>
+      </div>
+    </form>`;
 }
 
 function shiftDate(parts, days) {
@@ -664,6 +694,7 @@ const glyph = {
   image: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="m21 15-5-4-8 7"/>',
   chevL: '<path d="m15 18-6-6 6-6"/>',
   chevR: '<path d="m9 18 6-6-6-6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="m4.2 4.2 1.4 1.4"/><path d="m18.4 18.4 1.4 1.4"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="m4.2 19.8 1.4-1.4"/><path d="m18.4 5.6 1.4-1.4"/><path d="M19.4 12a7.4 7.4 0 1 1-2.2-5.2"/>',
 };
 
 function iconButton({ act, id, label, name, tone = "", ticket = "", view = "", src = "", caption = "", gallery = false }) {
@@ -1342,6 +1373,21 @@ async function refresh() {
     const board = await request("/api/dashboard.php");
     if (seq !== loadSeq) return;
     if (board.res.ok && board.body.stats) state.pending = Number(board.body.stats.pendingPayments || 0);
+    return;
+  }
+  if (state.view === "settings") {
+    const { res, body } = await request("/api/admin-settings.php");
+    if (seq !== loadSeq) return;
+    unauthorized(res);
+    if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load settings"));
+    const brand = body.branding || {};
+    state.settings = {
+      app_name: brand.app_name || appName,
+      developer_name: brand.developer_name || "",
+      developer_url: brand.developer_url || "",
+      credit_prefix: brand.credit_prefix || "Developed by",
+      loaded: true,
+    };
     return;
   }
   const { res, body } = await request("/api/admin-lotteries.php");
@@ -2040,6 +2086,45 @@ async function submitPassword(form) {
   }
 }
 
+async function submitSettings(form) {
+  const data = Object.fromEntries(new FormData(form));
+  const button = form.querySelector("[type=submit]");
+  button.disabled = true;
+  try {
+    const { res, body } = await request("/api/admin-settings.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        app_name: data.app_name,
+        developer_name: data.developer_name,
+        developer_url: data.developer_url,
+        credit_prefix: data.credit_prefix,
+      }),
+    });
+    unauthorized(res);
+    if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not save settings"));
+    const brand = body.branding || {};
+    state.settings = {
+      app_name: brand.app_name,
+      developer_name: brand.developer_name,
+      developer_url: brand.developer_url,
+      credit_prefix: brand.credit_prefix,
+      loaded: true,
+    };
+    appName = brand.app_name;
+    const meta = document.querySelector('meta[name="app-name"]');
+    if (meta) meta.content = appName;
+    document.title = appName;
+    state.notice = "Branding saved";
+    state.error = "";
+    render();
+  } catch (error) {
+    caught(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function onSubmit(event) {
   event.preventDefault();
   if (event.target.id === "login-form") submitLogin(event.target);
@@ -2047,6 +2132,7 @@ function onSubmit(event) {
   else if (event.target.id === "bank-form") submitBank(event.target);
   else if (event.target.id === "confirm-form") submitConfirm();
   else if (event.target.id === "password-form") submitPassword(event.target);
+  else if (event.target.id === "settings-form") submitSettings(event.target);
 }
 
 document.addEventListener("click", (event) => { onClick(event); });

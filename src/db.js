@@ -161,6 +161,11 @@ const SCHEMA = [
     customer_id INT NULL,
     session_id CHAR(64) NULL
   ) ENGINE=InnoDB`,
+  `CREATE TABLE IF NOT EXISTS settings (
+    setting_key VARCHAR(64) PRIMARY KEY,
+    setting_value TEXT NOT NULL,
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
+  ) ENGINE=InnoDB`,
 ];
 
 export async function openDatabase() {

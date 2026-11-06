@@ -179,16 +179,18 @@ async function read(url, options) {
 }
 
 function storeUser(user) {
-  if (user?.phone) localStorage.setItem("maraki_phone", user.phone);
-  else localStorage.removeItem("maraki_phone");
-  if (user?.name) localStorage.setItem("maraki_name", user.name);
-  else localStorage.removeItem("maraki_name");
+  if (user?.phone) localStorage.setItem("buyer_phone", user.phone);
+  else localStorage.removeItem("buyer_phone");
+  if (user?.name) localStorage.setItem("buyer_name", user.name);
+  else localStorage.removeItem("buyer_name");
+  localStorage.removeItem("maraki_phone");
+  localStorage.removeItem("maraki_name");
 }
 
 async function refresh() {
   try {
     const body = await read("/api/telegram.php");
-    const before = localStorage.getItem("maraki_phone") || "";
+    const before = localStorage.getItem("buyer_phone") || localStorage.getItem("maraki_phone") || "";
     const next = body.user?.phone || "";
     clientId = body.clientId || "";
     storeUser(body.user || null);
@@ -260,6 +262,8 @@ async function signOut() {
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
+  localStorage.removeItem("buyer_phone");
+  localStorage.removeItem("buyer_name");
   localStorage.removeItem("maraki_phone");
   localStorage.removeItem("maraki_name");
   location.reload();

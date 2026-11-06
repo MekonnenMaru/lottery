@@ -459,6 +459,15 @@ input:focus, select:focus {
   align-content: start;
 }
 
+.settings-form {
+  max-width: 420px;
+}
+
+.settings-form h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
 .panel .table-wrap { max-height: none; overflow: auto; }
 .panel table { min-width: 0; }
 

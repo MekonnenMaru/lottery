@@ -1,5 +1,5 @@
 import { all, run, withTransaction } from "../../db.js";
-import { appName } from "../../util.js";
+import { appName } from "../settings/service.js";
 
 const PEOPLE = [
   ["Abel Bekele", "251911100001"],

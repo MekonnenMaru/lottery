@@ -8,7 +8,7 @@ import { seedCatalog } from "./src/features/lotteries/seed.js";
 import { seedBanks } from "./src/features/banks/service.js";
 import { createApp } from "./src/app.js";
 import { startTelegramBot } from "./src/features/telegram/bot.js";
-import { appName } from "./src/util.js";
+import { appName, loadSettings } from "./src/features/settings/service.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 dotenv.config({ path: path.join(root, ".env") });
@@ -36,6 +36,7 @@ if (production) {
 
 async function start() {
   await openDatabase();
+  await loadSettings();
   const adminUsername = await ensureAdmin();
   await seedBanks();
   await seedCatalog();

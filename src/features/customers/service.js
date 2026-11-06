@@ -1,6 +1,7 @@
 import { all, get, iso } from "../../db.js";
 import { NAIROBI_TZ_MINUTES } from "../../time.js";
-import { appName, httpError } from "../../util.js";
+import { httpError } from "../../util.js";
+import { appName } from "../settings/service.js";
 import { renderReport } from "../reports/files.js";
 
 function padTicket(number) {
