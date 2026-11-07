@@ -1,18 +1,27 @@
 (() => {
-  const zone = "Africa/Nairobi";
+  const zone = "Africa/Addis_Ababa";
+  const offset = "+03:00";
   const RealDate = Date;
   let skew = 0;
-  try {
-    const xhr = new XMLHttpRequest();
-    xhr.open("GET", "/api/time.php", false);
-    xhr.send();
-    if (xhr.status === 200) {
-      const server = RealDate.parse(JSON.parse(xhr.responseText).now);
-      if (Number.isFinite(server)) skew = server - RealDate.now();
-    }
-  } catch {
-    /* keep the device clock only if the server cannot be reached */
+
+  function applySkew(iso) {
+    const server = RealDate.parse(iso);
+    if (Number.isFinite(server)) skew = server - RealDate.now();
   }
+
+  function sync() {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", "/api/time.php", false);
+      xhr.send();
+      if (xhr.status === 200) applySkew(JSON.parse(xhr.responseText).now);
+    } catch {
+      /* keep last skew / device clock if the server cannot be reached */
+    }
+  }
+
+  sync();
+  setInterval(sync, 60_000);
 
   function now() {
     return RealDate.now() + skew;
@@ -45,5 +54,5 @@
     return clock.call(this, locale, zoned(options));
   };
 
-  window.MarakiTime = { zone, offset: "+03:00", now };
+  window.MarakiTime = { zone, offset, now, sync };
 })();

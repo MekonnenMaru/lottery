@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { all, countOf, get, run, withTransaction } from "../../db.js";
 import { lotteryImageDir } from "../../paths.js";
+import { nowMs } from "../../time.js";
 import { httpError, intValue, optionalText, parseWhen, requiredText } from "../../util.js";
 import { writeAudit } from "../audit/service.js";
 import { expireReservations } from "../orders/service.js";
@@ -57,7 +58,7 @@ export async function createLottery(body) {
   if (end.getTime() - start.getTime() > 730 * 24 * 60 * 60 * 1000) {
     throw httpError(400, "A lottery can run for at most two years");
   }
-  if (end.getTime() <= Date.now()) throw httpError(400, "End time is already in the past");
+  if (end.getTime() <= nowMs()) throw httpError(400, "End time is already in the past");
   const hidden = body.hidden === true || body.hidden === 1 || body.hidden === "1" || body.hidden === "true";
   const featured = !hidden && (body.featured === "1" || body.featured === "true" || body.featured === true);
   const id = await withTransaction(async (tx) => {

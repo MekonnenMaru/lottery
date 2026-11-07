@@ -1,3 +1,5 @@
+import { APP_TZ_MINUTES } from "./time.js";
+
 export function httpError(status, message) {
   const error = new Error(message);
   error.status = status;
@@ -38,17 +40,26 @@ export function optionalText(value, max) {
   return text;
 }
 
-const NAIROBI_WALL = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
+const APP_WALL = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
 
+/** Parse an instant. Offset-less values are treated as Africa/Addis_Ababa wall time. */
 export function parseWhen(value) {
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
   const text = String(value ?? "").trim();
   if (!text) return null;
   if (!/[zZ]$|[+-]\d{2}:\d{2}$/.test(text)) {
-    const wall = NAIROBI_WALL.exec(text);
+    const wall = APP_WALL.exec(text);
     if (wall) {
       const [, year, month, day, hour, minute, second] = wall;
-      const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second || 0)) - 180 * 60 * 1000);
+      const utcMs = Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second || 0),
+      ) + APP_TZ_MINUTES * 60 * 1000;
+      const date = new Date(utcMs);
       return Number.isNaN(date.getTime()) ? null : date;
     }
   }

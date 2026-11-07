@@ -1,5 +1,5 @@
 import { all, countOf, get, iso } from "../../db.js";
-import { NAIROBI_TZ_MINUTES } from "../../time.js";
+import { APP_TZ_MINUTES } from "../../time.js";
 import { httpError, intValue, maskPhone, normalizePhone, parseWhen } from "../../util.js";
 import { listBanks } from "../banks/service.js";
 import { expireReservations } from "../orders/service.js";
@@ -234,7 +234,7 @@ function dashboardQuery(query) {
   const bank = query.bank && query.bank !== "all" ? intValue(query.bank, 1, 1_000_000_000) : null;
   if (query.bank && query.bank !== "all" && !bank) throw httpError(400, "Choose a bank");
   const status = DASHBOARD_STATUSES[query.status] ? query.status : "all";
-  return { from, to, lottery, bank, status, tz: NAIROBI_TZ_MINUTES };
+  return { from, to, lottery, bank, status, tz: APP_TZ_MINUTES };
 }
 
 function orderWhere(filter, statuses, bounds = filter) {

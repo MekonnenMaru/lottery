@@ -1,5 +1,5 @@
 import { all } from "../../db.js";
-import { NAIROBI_TZ_MINUTES } from "../../time.js";
+import { APP_TZ_MINUTES } from "../../time.js";
 import { httpError, intValue, parseWhen } from "../../util.js";
 import { appName } from "../settings/service.js";
 import { expireReservations } from "../orders/service.js";
@@ -47,7 +47,7 @@ function filters(query) {
   if (from && to && from > to) throw httpError(400, "The start is after the end");
   const lottery = query.lottery && query.lottery !== "all" ? intValue(query.lottery, 1, 1_000_000_000) : null;
   if (query.lottery && query.lottery !== "all" && !lottery) throw httpError(400, "Choose a lottery");
-  return { from, to, lottery, tz: NAIROBI_TZ_MINUTES };
+  return { from, to, lottery, tz: APP_TZ_MINUTES };
 }
 
 async function paymentRows(filter, status) {

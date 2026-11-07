@@ -133,7 +133,7 @@ function safeSrc(url) {
   return "";
 }
 
-const ZONE = "Africa/Nairobi";
+const ZONE = "Africa/Addis_Ababa";
 const OFFSET = "+03:00";
 
 function nairobiParts(value) {
