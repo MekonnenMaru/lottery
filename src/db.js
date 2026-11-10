@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import { databaseConfig } from "./config/database.js";
 import { runMigrations } from "./migrations.js";
 
 let pool;
@@ -79,11 +80,7 @@ export async function withTransaction(fn, { retries = 1 } = {}) {
 export async function openDatabase() {
   if (pool) return pool;
 
-  const host = process.env.DB_HOST || "localhost";
-  const port = Number(process.env.DB_PORT || 3306);
-  const user = process.env.DB_USER || "root";
-  const password = process.env.DB_PASSWORD ?? "";
-  const database = process.env.DB_NAME || "maraki_ekub";
+  const { host, port, user, password, database, poolSize } = databaseConfig();
   if (!/^[A-Za-z0-9_]+$/.test(database)) {
     throw new Error("DB_NAME may only contain letters, numbers, and underscores");
   }
@@ -104,8 +101,8 @@ export async function openDatabase() {
     password,
     database,
     waitForConnections: true,
-    connectionLimit: Number(process.env.DB_POOL_SIZE || 10),
-    maxIdle: Number(process.env.DB_POOL_SIZE || 10),
+    connectionLimit: poolSize,
+    maxIdle: poolSize,
     idleTimeout: 60_000,
     enableKeepAlive: true,
     keepAliveInitialDelay: 0,

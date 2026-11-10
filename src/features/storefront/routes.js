@@ -1,14 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
-import bcrypt from "bcryptjs";
 import { Router } from "express";
-import { cookieOptions, siteLimiter } from "../../http.js";
-import { lotteryImageDir, receiptDir } from "../../paths.js";
+import { clearCookieOptions, cookieOptions } from "../../config/security.js";
+import { clockPayload } from "../../config/time.js";
+import { lotteryImageDir, receiptDir } from "../../config/paths.js";
+import { requireStaff as staff } from "../../middleware/auth.js";
+import { wrap } from "../../middleware/error-handler.js";
+import { siteLimiter } from "../../middleware/rate-limit.js";
+import { idOf } from "../../middleware/validate.js";
 import { lotteryUpload, screenshotUpload } from "../../uploads.js";
-import { clockPayload } from "../../time.js";
 import { httpError, intValue } from "../../util.js";
-import { changeAdminPassword, findAdmin, findAdminById } from "../admin/service.js";
-import { createSession, destroySession, readSession } from "../auth/service.js";
+import { destroySession, readSession } from "../auth/session.js";
 import { addBank, setBankActive, updateBank } from "../banks/service.js";
 import {
   announceTicket,
@@ -19,7 +21,6 @@ import {
   setLotteryHidden,
   updateLottery,
 } from "../lotteries/service.js";
-import { customerHistory, exportCustomers, listCustomers } from "../customers/service.js";
 import { buildReport, reportData } from "../reports/service.js";
 import {
   beginTelegramOidc,
@@ -45,42 +46,6 @@ import {
 } from "./service.js";
 
 const router = Router();
-const dummyPasswordHash = bcrypt.hashSync("not-a-real-admin-password", 12);
-
-function wrap(handler) {
-  return (req, res) => {
-    Promise.resolve(handler(req, res)).catch((error) => {
-      const status = error.status || 500;
-      if (status >= 500) console.error(error);
-      if (!res.headersSent) {
-        res.status(status).json({
-          success: false,
-          message: status >= 500 ? "Something went wrong" : error.message,
-        });
-      }
-    });
-  };
-}
-
-async function staff(req, res, next) {
-  try {
-    const session = await readSession(req.cookies?.admin_sid, "admin");
-    const admin = session ? await findAdminById(Number(session.subject)) : null;
-    if (!admin) {
-      res.status(401).json({ success: false, message: "Staff sign-in required" });
-      return;
-    }
-    req.admin = admin;
-    next();
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: "Something went wrong" });
-  }
-}
-
-function idOf(value) {
-  return intValue(value, 1, 1_000_000_000);
-}
 
 function whole(value) {
   const number = Number(value);
@@ -174,12 +139,7 @@ router.post("/telegram-webapp.php", siteLimiter(20), wrap(async (req, res) => {
 
 router.post("/telegram-logout.php", wrap(async (req, res) => {
   await destroySession(req.cookies?.buyer_sid);
-  res.clearCookie("buyer_sid", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-  });
+  res.clearCookie("buyer_sid", clearCookieOptions());
   res.json({ success: true });
 }));
 
@@ -252,15 +212,6 @@ router.get("/receipt-files/:name", staff, (req, res) => {
   res.sendFile(full);
 });
 
-router.get("/admin-session.php", staff, wrap(async (req, res) => {
-  res.json({ success: true, admin: { id: req.admin.id, username: req.admin.username } });
-}));
-
-router.post("/admin-password.php", staff, siteLimiter(10), wrap(async (req, res) => {
-  await changeAdminPassword(req.admin.id, req.body?.current_password, req.body?.new_password);
-  res.json({ success: true });
-}));
-
 router.get("/admin-settings.php", staff, wrap(async (req, res) => {
   res.json({ success: true, branding: await getBrandingSettings() });
 }));
@@ -270,28 +221,6 @@ router.post("/admin-settings.php", staff, siteLimiter(20), wrap(async (req, res)
   invalidateBuyerBundle();
   publishBuyerBundle();
   res.json({ success: true, branding });
-}));
-
-router.post("/admin-logout.php", staff, wrap(async (req, res) => {
-  await destroySession(req.cookies?.admin_sid);
-  res.clearCookie("admin_sid", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-  });
-  res.json({ success: true });
-}));
-
-router.post("/admin-login.php", siteLimiter(10), wrap(async (req, res) => {
-  const username = String(req.body?.username ?? "").trim();
-  const password = String(req.body?.password ?? "");
-  const admin = await findAdmin(username);
-  const match = await bcrypt.compare(password, admin?.password_hash || dummyPasswordHash);
-  if (!admin || !match) throw httpError(401, "Invalid username or password");
-  const session = await createSession("admin", String(admin.id), 12 * 60 * 60 * 1000);
-  res.cookie("admin_sid", session.id, cookieOptions(session.expiresAt));
-  res.json({ success: true, admin: { id: admin.id, username: admin.username } });
 }));
 
 router.get("/dashboard.php", staff, wrap(async (req, res) => {
@@ -414,24 +343,6 @@ router.post("/admin-hide-lottery.php", staff, wrap(async (req, res) => {
   const hidden = req.body?.hidden === true || req.body?.hidden === 1 || req.body?.hidden === "1";
   await setLotteryHidden(id, hidden);
   res.json({ success: true });
-}));
-
-router.get("/admin-customers.php", staff, wrap(async (req, res) => {
-  if (req.query.format === "csv" || req.query.format === "xls") {
-    const file = await exportCustomers(req.query);
-    res.set("Content-Type", file.type);
-    res.set("Content-Disposition", `attachment; filename="${file.name}"`);
-    res.set("Cache-Control", "no-store");
-    res.send(file.body);
-    return;
-  }
-  res.json({ success: true, data: await listCustomers() });
-}));
-
-router.get("/admin-customer.php", staff, wrap(async (req, res) => {
-  const id = idOf(req.query.id);
-  if (!id) throw httpError(404, "Customer not found");
-  res.json({ success: true, ...(await customerHistory(id)) });
 }));
 
 router.get("/admin-winners.php", staff, wrap(async (req, res) => {

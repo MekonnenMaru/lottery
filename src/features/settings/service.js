@@ -1,12 +1,8 @@
+import { BRANDING_DEFAULTS } from "../../config/branding.js";
 import { all, run } from "../../db.js";
 import { httpError, optionalText, requiredText } from "../../util.js";
 
-export const BRANDING_DEFAULTS = Object.freeze({
-  app_name: "Maraki Car Sale",
-  developer_name: "Maraki Tech",
-  developer_url: "https://marakitech.et",
-  credit_prefix: "Developed by",
-});
+export { BRANDING_DEFAULTS };
 
 const KEYS = Object.keys(BRANDING_DEFAULTS);
 

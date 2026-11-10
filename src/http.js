@@ -1,21 +1,3 @@
-import rateLimit from "express-rate-limit";
-
-export function cookieOptions(expiresAt) {
-  return {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    expires: new Date(expiresAt),
-    path: "/",
-  };
-}
-
-export function siteLimiter(limit) {
-  return rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { success: false, message: "Too many attempts. Try again later." },
-  });
-}
+/** @deprecated Import cookie helpers from `./config/security.js` and rate limits from `./middleware/rate-limit.js`. */
+export { cookieOptions } from "./config/security.js";
+export { siteLimiter } from "./middleware/rate-limit.js";

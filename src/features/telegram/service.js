@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { get, run } from "../../db.js";
-import { createSession } from "../auth/service.js";
+import { securityConfig } from "../../config/security.js";
+import { createSession } from "../auth/session.js";
 import { httpError, normalizePhone } from "../../util.js";
 import { verifyTelegramToken } from "./verify.js";
 
@@ -112,7 +113,7 @@ export async function completeTelegramOidc(idToken) {
     phone,
   });
   if (!customer) throw httpError(400, "That phone number cannot be used. Use an Ethiopian mobile number.");
-  const session = await createSession("buyer", String(customer.id), 30 * 24 * 60 * 60 * 1000);
+  const session = await createSession("buyer", String(customer.id), securityConfig().buyerSessionTtlMs);
   return { customer, session };
 }
 
@@ -164,6 +165,6 @@ export async function completeTelegramWebApp(initData) {
     [telegramId],
   );
   if (!customer?.phone) throw httpError(400, "Share your phone number with the bot first.");
-  const session = await createSession("buyer", String(customer.id), 30 * 24 * 60 * 60 * 1000);
+  const session = await createSession("buyer", String(customer.id), securityConfig().buyerSessionTtlMs);
   return { customer, session };
 }

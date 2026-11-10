@@ -1,28 +1,29 @@
-import crypto from "node:crypto";
-import { get, run } from "../../db.js";
+import bcrypt from "bcryptjs";
+import { securityConfig } from "../../config/security.js";
+import { httpError } from "../../util.js";
+import { changeAdminPassword, findAdmin } from "../admin/service.js";
+import { createSession, destroySession } from "./session.js";
 
-export async function createSession(kind, subject, ttlMs) {
-  const id = crypto.randomBytes(32).toString("hex");
-  const expiresAt = Date.now() + ttlMs;
-  await run(
-    "INSERT INTO sessions (id, kind, subject, expires_at) VALUES (?, ?, ?, ?)",
-    [id, kind, subject, expiresAt],
-  );
-  return { id, expiresAt };
+const dummyPasswordHash = bcrypt.hashSync("not-a-real-admin-password", 12);
+
+export async function loginStaff(username, password) {
+  const admin = await findAdmin(username);
+  const match = await bcrypt.compare(password, admin?.password_hash || dummyPasswordHash);
+  if (!admin || !match) throw httpError(401, "Invalid username or password");
+  const session = await createSession("admin", String(admin.id), securityConfig().adminSessionTtlMs);
+  return {
+    admin: { id: admin.id, username: admin.username },
+    session,
+  };
 }
 
-export async function destroySession(id) {
-  if (!id || !/^[a-f0-9]{64}$/.test(id)) return;
-  await run("DELETE FROM sessions WHERE id = ?", [id]);
+export async function logoutStaff(sessionId) {
+  await destroySession(sessionId);
 }
 
-export async function readSession(id, kind) {
-  if (!id || !/^[a-f0-9]{64}$/.test(id)) return null;
-  const row = await get("SELECT * FROM sessions WHERE id = ? AND kind = ?", [id, kind]);
-  if (!row) return null;
-  if (Number(row.expires_at) < Date.now()) {
-    await run("DELETE FROM sessions WHERE id = ?", [id]);
-    return null;
-  }
-  return row;
+export async function changeStaffPassword(adminId, currentPassword, newPassword) {
+  await changeAdminPassword(adminId, currentPassword, newPassword);
 }
+
+/** @deprecated Use `./session.js` for session storage helpers. */
+export { createSession, destroySession, readSession } from "./session.js";

@@ -3,8 +3,10 @@ import path from "node:path";
 import cookieParser from "cookie-parser";
 import express from "express";
 import helmet from "helmet";
-import multer from "multer";
-import { publicDir, receiptDir, lotteryImageDir } from "./paths.js";
+import { publicDir, receiptDir, lotteryImageDir } from "./config/paths.js";
+import { errorHandler } from "./middleware/error-handler.js";
+import authRoutes from "./features/auth/routes.js";
+import customerRoutes from "./features/customers/routes.js";
 import storefrontRoutes from "./features/storefront/routes.js";
 import { buyerScript, publishBuyerBundle } from "./features/storefront/buyer-bundle.js";
 import { branding } from "./features/settings/service.js";
@@ -68,6 +70,8 @@ export function createApp() {
   api.get("/health", (req, res) => {
     res.json({ ok: true });
   });
+  api.use(authRoutes);
+  api.use(customerRoutes);
   api.use(storefrontRoutes);
   app.use("/api", api);
 
@@ -106,19 +110,6 @@ export function createApp() {
   app.use((req, res) => {
     res.status(404).type("text").send("Not found");
   });
-  app.use((err, req, res, next) => {
-    if (res.headersSent) return next(err);
-    if (err instanceof multer.MulterError) {
-      res.status(400).json({ error: "Upload a JPEG, PNG, or WebP image under 5 MB" });
-      return;
-    }
-    if (err.type === "entity.parse.failed") {
-      res.status(400).json({ error: "Invalid request" });
-      return;
-    }
-    const status = err.status || 500;
-    if (status >= 500) console.error(err);
-    res.status(status).json({ error: status >= 500 ? "Something went wrong" : err.message });
-  });
+  app.use(errorHandler);
   return app;
 }
