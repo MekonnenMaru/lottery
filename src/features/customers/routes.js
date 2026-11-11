@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { requireStaff } from "../../middleware/auth.js";
+import { requirePrivilege, requireStaff } from "../../middleware/auth.js";
 import { wrap } from "../../middleware/error-handler.js";
 import * as controller from "./controller.js";
 
 const router = Router();
+const customers = [requireStaff, requirePrivilege("customers")];
 
-router.get("/admin-customers", requireStaff, wrap(controller.list));
-router.get("/admin-customer", requireStaff, wrap(controller.history));
+router.get("/admin-customers", ...customers, wrap(controller.list));
+router.get("/admin-customer", ...customers, wrap(controller.history));
 
 export default router;

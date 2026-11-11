@@ -7,8 +7,10 @@ import { publicDir, receiptDir, lotteryImageDir } from "./config/paths.js";
 import { LOTTERY_BASE_PATH, rewritePublicPaths } from "./config/embed.js";
 import { env } from "./config/env.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import adminRoutes from "./features/admin/routes.js";
 import authRoutes from "./features/auth/routes.js";
 import customerRoutes from "./features/customers/routes.js";
+import ocrScannerRoutes from "./features/OCR-scanner/routes.js";
 import storefrontRoutes from "./features/storefront/routes.js";
 import { buyerScript, publishBuyerBundle } from "./features/storefront/buyer-bundle.js";
 import { branding } from "./features/settings/service.js";
@@ -90,7 +92,9 @@ export function createApp(options = {}) {
     res.json({ ok: true, product: "lottery", basePath: basePath || "/" });
   });
   api.use(authRoutes);
+  api.use(adminRoutes);
   api.use(customerRoutes);
+  api.use(ocrScannerRoutes);
   api.use(storefrontRoutes);
   app.use("/api", api);
 

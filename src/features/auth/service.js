@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { securityConfig } from "../../config/security.js";
 import { httpError } from "../../util.js";
-import { changeAdminPassword, findAdmin } from "../admin/service.js";
+import { adminPublic, changeAdminPassword, findAdmin } from "../admin/service.js";
 import { createSession, destroySession } from "./session.js";
 
 const dummyPasswordHash = bcrypt.hashSync("not-a-real-admin-password", 12);
@@ -10,9 +10,10 @@ export async function loginStaff(username, password) {
   const admin = await findAdmin(username);
   const match = await bcrypt.compare(password, admin?.password_hash || dummyPasswordHash);
   if (!admin || !match) throw httpError(401, "Invalid username or password");
+  if (Number(admin.active) === 0) throw httpError(401, "This account is disabled");
   const session = await createSession("admin", String(admin.id), securityConfig().adminSessionTtlMs);
   return {
-    admin: { id: admin.id, username: admin.username },
+    admin: adminPublic(admin),
     session,
   };
 }

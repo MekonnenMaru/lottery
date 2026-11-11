@@ -147,12 +147,21 @@ export async function approveOrder(orderId, adminId) {
     const order = await tx.get("SELECT * FROM orders WHERE id = ? FOR UPDATE", [orderId]);
     if (!order) throw httpError(404, "Order not found");
     if (order.status !== "pending") throw httpError(400, "Only a receipt waiting for review can be approved");
+    if (!String(order.transaction_id || "").trim()) {
+      throw httpError(400, "Enter the bank transaction ID before approving");
+    }
     await tx.run(
       "UPDATE orders SET status = 'approved', reviewed_at = UTC_TIMESTAMP(3), reviewed_by = ? WHERE id = ?",
       [adminId, orderId],
     );
     await tx.run("UPDATE tickets SET status = 'approved' WHERE order_id = ?", [orderId]);
-    await writeAudit(tx, adminId, "approve_payment", { orderId, lotteryId: order.lottery_id });
+    await writeAudit(tx, adminId, "approve_payment", {
+      orderId,
+      lotteryId: order.lottery_id,
+      receipt: order.receipt_path || order.ocr_receipt || null,
+      transactionId: order.transaction_id || null,
+      ocrScannedBy: order.ocr_scanned_by || null,
+    });
   });
 }
 
@@ -166,6 +175,12 @@ export async function rejectOrder(orderId, adminId) {
       "UPDATE orders SET status = 'rejected', reviewed_at = UTC_TIMESTAMP(3), reviewed_by = ? WHERE id = ?",
       [adminId, orderId],
     );
-    await writeAudit(tx, adminId, "reject_payment", { orderId, lotteryId: order.lottery_id });
+    await writeAudit(tx, adminId, "reject_payment", {
+      orderId,
+      lotteryId: order.lottery_id,
+      receipt: order.receipt_path || order.ocr_receipt || null,
+      transactionId: order.transaction_id || null,
+      ocrScannedBy: order.ocr_scanned_by || null,
+    });
   });
 }

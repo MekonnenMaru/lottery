@@ -1,9 +1,10 @@
 import { clearCookieOptions, cookieOptions } from "../../config/security.js";
+import { adminPublic } from "../admin/service.js";
 import { changeStaffPassword, loginStaff, logoutStaff } from "./service.js";
 import { parseLoginBody, parsePasswordChangeBody } from "./validation.js";
 
 export async function session(req, res) {
-  res.json({ success: true, admin: { id: req.admin.id, username: req.admin.username } });
+  res.json({ success: true, admin: adminPublic(req.admin) });
 }
 
 export async function login(req, res) {

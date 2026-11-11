@@ -151,6 +151,7 @@ function paymentDto(row) {
   } catch {
     numbers = [];
   }
+  const hasOcr = Boolean(row.ocr_text);
   return {
     id: row.id,
     customer_name: row.customer_name || "",
@@ -165,6 +166,22 @@ function paymentDto(row) {
     created_at: iso(row.created_at),
     bank_name: row.bank_name || "",
     sender_account: row.sender_account || "",
+    transaction_id: row.transaction_id || "",
+    reviewed_at: row.reviewed_at ? iso(row.reviewed_at) : "",
+    reviewed_by: row.reviewed_by == null ? null : Number(row.reviewed_by),
+    reviewed_by_name: row.reviewed_by_name || "",
+    scanned_by_name: row.ocr_scanned_by_name || "",
+    ocr: hasOcr
+      ? {
+          text: String(row.ocr_text || ""),
+          confidence: row.ocr_confidence == null ? null : Number(row.ocr_confidence),
+          language: row.ocr_language || "eng",
+          receipt: row.ocr_receipt || row.receipt_path || "",
+          scanned_at: row.ocr_scanned_at ? iso(row.ocr_scanned_at) : "",
+          scanned_by: row.ocr_scanned_by == null ? null : Number(row.ocr_scanned_by),
+          scanned_by_name: row.ocr_scanned_by_name || "",
+        }
+      : null,
   };
 }
 
@@ -175,14 +192,18 @@ export async function storePayments({ status, search, limit, page, pageSize }) {
   const term = `%${String(search || "").trim().slice(0, 40)}%`;
   const filtering = Boolean(String(search || "").trim());
   const where = filtering
-    ? "WHERE (o.phone LIKE ? OR o.customer_name LIKE ? OR o.ticket_numbers LIKE ? OR l.title LIKE ? OR CAST(l.id AS CHAR) LIKE ?)"
+    ? "WHERE (o.phone LIKE ? OR o.customer_name LIKE ? OR o.ticket_numbers LIKE ? OR l.title LIKE ? OR CAST(l.id AS CHAR) LIKE ? OR o.transaction_id LIKE ? OR reviewer.username LIKE ? OR scanner.username LIKE ?)"
     : "";
-  const params = filtering ? [term, term, term, term, term] : [];
+  const params = filtering ? [term, term, term, term, term, term, term, term] : [];
   const rows = await all(`
-    SELECT o.*, l.title, b.bank_name
+    SELECT o.*, l.title, b.bank_name,
+           scanner.username AS ocr_scanned_by_name,
+           reviewer.username AS reviewed_by_name
     FROM orders o
     JOIN lotteries l ON l.id = o.lottery_id
     LEFT JOIN bank_accounts b ON b.id = o.bank_account_id
+    LEFT JOIN admins scanner ON scanner.id = o.ocr_scanned_by
+    LEFT JOIN admins reviewer ON reviewer.id = o.reviewed_by
     ${where}
     ORDER BY o.id DESC
   `, params);

@@ -10,6 +10,7 @@ const viewHash = {
   winners: "winners",
   customers: "customers",
   report: "report",
+  admins: "admins",
   settings: "settings",
 };
 const hashView = {
@@ -25,6 +26,10 @@ const hashView = {
   customers: "customers",
   customer: "customers",
   report: "report",
+  admins: "admins",
+  admin: "admins",
+  accounts: "admins",
+  staff: "admins",
   settings: "settings",
   setting: "settings",
   branding: "settings",
@@ -105,10 +110,44 @@ const state = {
     developer_name: "Maraki Tech",
     developer_url: "https://marakitech.et",
     credit_prefix: "Developed by",
+    ocr_scan_limit: 60,
+    ocr_scan_window_minutes: 15,
     loaded: false,
   },
+  admins: { rows: [], privileges: [], search: "", status: "all", page: 1, pageSize: 10 },
   modal: null,
 };
+
+const viewPrivilege = {
+  dashboard: null,
+  draws: "lotteries",
+  payments: "payments",
+  banks: "banks",
+  winners: "winners",
+  customers: "customers",
+  report: "reports",
+  settings: "settings",
+};
+
+function isSuper() {
+  return state.admin?.role === "super";
+}
+
+function hasPriv(id) {
+  if (!state.admin) return false;
+  if (isSuper()) return true;
+  return (state.admin.privileges || []).includes(id);
+}
+
+function canView(view) {
+  if (view === "admins") return isSuper();
+  const need = viewPrivilege[view];
+  return !need || hasPriv(need);
+}
+
+function firstAllowedView() {
+  return ["dashboard", "payments", "draws", "banks", "winners", "customers", "report", "admins", "settings"].find(canView) || "dashboard";
+}
 
 let loadSeq = 0;
 let searchTimer = 0;
@@ -276,8 +315,9 @@ function shell() {
     ["winners", "Winners", "", "trophy"],
     ["customers", "Customers", "", "user"],
     ["report", "Report", "", "file"],
+    ["admins", "Admin accounts", "", "key"],
     ["settings", "Settings", "", "gear"],
-  ];
+  ].filter(([id]) => canView(id));
   const titles = {
     dashboard: ["Dashboard", "Collected, waiting, and rejected money for the period you choose."],
     draws: ["Lotteries", "Create a lottery, edit one, or choose its winner."],
@@ -286,9 +326,12 @@ function shell() {
     winners: ["Winners", "Announced results."],
     customers: ["Customers", "People registered with Telegram, and the orders they placed."],
     report: ["Report", "Review the rows, then export them."],
-    settings: ["Settings", "App name and public credit shown to customers."],
+    admins: ["Admin accounts", "Create admins and choose what they can open."],
+    settings: ["Settings", "App name and OCR scan limits."],
   };
+  if (!canView(state.view)) state.view = firstAllowedView();
   const [title, blurb] = titles[state.view] || titles.dashboard;
+  const roleLabel = isSuper() ? "Super admin" : "Admin";
   const menuMark = state.menuOpen
     ? '<path d="M6 6 18 18"/><path d="M18 6 6 18"/>'
     : '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>';
@@ -308,8 +351,8 @@ function shell() {
         </nav>
         <div class="side-foot">
           <div class="foot-id">
-            <span class="foot-circle" aria-hidden="true">${esc(String(state.admin.username || "?").slice(0, 1).toUpperCase())}</span>
-            <span class="foot-role" title="${esc(state.admin.username)}">${esc(state.admin.username)}</span>
+            <span class="foot-circle" aria-hidden="true">${esc(String(state.admin.name || state.admin.username || "?").slice(0, 1).toUpperCase())}</span>
+            <span class="foot-role" title="${esc(state.admin.username)}">${esc(state.admin.name || state.admin.username)} · ${esc(roleLabel)}</span>
             <button type="button" class="icon-btn" data-act="password" aria-label="Password" title="Password">${svg(glyph.key)}</button>
           </div>
           <div class="foot-tools">
@@ -343,8 +386,77 @@ function viewBody() {
   if (state.view === "winners") return winnersView();
   if (state.view === "customers") return customersView();
   if (state.view === "report") return reportView();
+  if (state.view === "admins") return adminsView();
   if (state.view === "settings") return settingsView();
   return drawsView();
+}
+
+function privilegeChecks(name, selected) {
+  const picked = new Set(selected || []);
+  return `
+    <div class="priv-list">
+      ${(state.admins.privileges || []).map((item) => `
+        <label class="priv-item">
+          <input type="checkbox" name="${esc(name)}" value="${esc(item.id)}" ${picked.has(item.id) ? "checked" : ""}>
+          <span>${esc(item.label)}</span>
+        </label>`).join("")}
+    </div>`;
+}
+
+function privilegeText(row) {
+  if (row.role === "super") return "All";
+  const labels = (row.privileges || []).map((id) => {
+    const match = (state.admins.privileges || []).find((item) => item.id === id);
+    return match ? match.label : id;
+  });
+  return labels.join(", ") || "—";
+}
+
+function adminsView() {
+  const bag = state.admins;
+  const filtered = bag.rows.filter((row) => {
+    if (bag.status === "active" && !row.active) return false;
+    if (bag.status === "inactive" && row.active) return false;
+    return match(row, bag.search, ["name", "username", "phone", "role"]);
+  });
+  const info = pageSlice(filtered, bag);
+  return `
+    ${toolbar({
+      placeholder: "Filter by name, username, or phone",
+      statuses: [["all", "All statuses"], ["active", "Active"], ["inactive", "Inactive"]],
+      extra: `<button type="button" class="primary" data-act="new-admin">${svg(glyph.plus)} New admin</button>`,
+    })}
+    ${tableHtml({
+      name: "Admin accounts",
+      empty: "No admin accounts match this filter.",
+      columns: [
+        {
+          label: "Name",
+          cell: (row) => `<div class="who"><div><strong>${esc(row.name || row.username)}</strong><span>${esc(row.role === "super" ? "Super admin" : "Admin")}</span></div></div>`,
+        },
+        { label: "Username", cell: (row) => esc(row.username) },
+        { label: "Phone", cell: (row) => esc(row.phone || "—") },
+        { label: "Privileges", cell: (row) => esc(privilegeText(row)) },
+        { label: "Status", cell: (row) => badge(row.active ? "active" : "inactive") },
+      ],
+      rows: info.rows,
+      actions: (row) => row.role === "super"
+        ? iconSlots([
+          iconButton({ act: "edit-admin", id: row.id, label: "Edit", name: "edit" }),
+          null,
+        ])
+        : iconSlots([
+          iconButton({ act: "edit-admin", id: row.id, label: "Edit", name: "edit" }),
+          iconButton({
+            act: "admin-status",
+            id: row.id,
+            label: row.active ? "Disable" : "Enable",
+            name: "power",
+            tone: row.active ? "bad" : "good",
+          }),
+        ]),
+    })}
+    ${pagerHtml(info, "page")}`;
 }
 
 function settingsView() {
@@ -357,8 +469,14 @@ function settingsView() {
       <label>Credit line <input name="credit_prefix" maxlength="40" value="${esc(bag.credit_prefix)}" placeholder="Developed by"></label>
       <label>Developer name <input name="developer_name" required maxlength="60" value="${esc(bag.developer_name)}"></label>
       <label>Developer URL <input name="developer_url" type="url" required maxlength="200" value="${esc(bag.developer_url)}" placeholder="https://marakitech.et"></label>
+      <h2>Receipt OCR</h2>
+      <p class="muted">Limits how many receipt scans each staff account can run in a time window.</p>
+      <div class="split">
+        <label>Scan limit <input name="ocr_scan_limit" type="number" min="1" max="500" step="1" required value="${esc(bag.ocr_scan_limit)}"></label>
+        <label>Window (minutes) <input name="ocr_scan_window_minutes" type="number" min="1" max="1440" step="1" required value="${esc(bag.ocr_scan_window_minutes)}"></label>
+      </div>
       <div class="toolbar">
-        <button class="primary" type="submit">Save branding</button>
+        <button class="primary" type="submit">Save settings</button>
       </div>
     </form>`;
 }
@@ -702,6 +820,8 @@ const glyph = {
   chevL: '<path d="m15 18-6-6 6-6"/>',
   chevR: '<path d="m9 18 6-6-6-6"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="m4.2 4.2 1.4 1.4"/><path d="m18.4 18.4 1.4 1.4"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="m4.2 19.8 1.4-1.4"/><path d="m18.4 5.6 1.4-1.4"/><path d="M19.4 12a7.4 7.4 0 1 1-2.2-5.2"/>',
+  scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 12h10"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
 };
 
 function iconButton({ act, id, label, name, tone = "", ticket = "", view = "", src = "", caption = "", gallery = false }) {
@@ -776,7 +896,7 @@ function paymentsView() {
   const counts = bag.counts;
   return `
     ${toolbar({
-      placeholder: "Filter by name, phone, tickets, or lottery id",
+      placeholder: "Filter by name, phone, txn id, or staff",
       statuses: [
         ["all", `All (${counts.all || 0})`],
         ["pending", `Pending (${counts.pending || 0})`],
@@ -790,10 +910,19 @@ function paymentsView() {
       columns: [
         { label: "Buyer", cell: (row) => `<strong>${esc(row.customer_name)}</strong>` },
         { label: "Phone", cell: (row) => esc(row.customer_phone) },
+        { label: "Txn ID", cell: (row) => row.transaction_id ? `<span class="code">${esc(row.transaction_id)}</span>` : `<span class="muted">—</span>` },
         { label: "Lottery", cell: (row) => esc(`${row.lottery_id} · ${row.lottery_title}`) },
         { label: "Tickets", cell: (row) => esc(row.ticket_numbers) },
         { label: "Amount", cell: (row) => esc(money(row.amount)) },
         { label: "Status", cell: (row) => badge(row.status) },
+        {
+          label: "Who",
+          cell: (row) => {
+            if (row.reviewed_by_name) return esc(row.reviewed_by_name);
+            if (row.scanned_by_name) return esc(row.scanned_by_name);
+            return `<span class="muted">—</span>`;
+          },
+        },
         { label: "Date", cell: (row) => esc(when(row.created_at)) },
       ],
       rows: info.rows,
@@ -1074,6 +1203,7 @@ function modalHtml() {
   const inner = {
     draw: drawForm,
     bank: bankForm,
+    admin: adminForm,
     tickets: ticketsModal,
     confirm: confirmModal,
     payment: paymentModal,
@@ -1152,6 +1282,34 @@ function bankForm() {
     </form>`;
 }
 
+function adminForm() {
+  const row = state.modal.row;
+  const editing = Boolean(row?.id);
+  const isSuperRow = row?.role === "super";
+  return `
+    <form id="admin-form" class="modal-card">
+      ${modalClose()}
+      <h2>${editing ? "Edit admin" : "New admin"}</h2>
+      ${editing ? `<input type="hidden" name="admin_id" value="${esc(row.id)}">` : ""}
+      <label>Name <input name="name" required maxlength="80" value="${esc(row?.name || "")}" autocomplete="name"></label>
+      ${editing
+        ? `<p class="muted">Username <strong>${esc(row.username)}</strong></p>`
+        : `<label>Username <input name="username" required maxlength="32" autocomplete="off" pattern="[A-Za-z0-9._-]{3,32}"></label>`}
+      <label>Phone <input name="phone" maxlength="20" value="${esc(row?.phone || "")}" inputmode="tel" placeholder="Optional"></label>
+      ${isSuperRow ? "" : `
+        <label>${editing ? "New password" : "Password"}
+          <input name="password" type="password" ${editing ? "" : "required"} minlength="4" maxlength="72" autocomplete="new-password" ${editing ? 'placeholder="Leave blank to keep"' : ""}>
+        </label>
+        <p class="muted">Privileges</p>
+        ${privilegeChecks("privileges", editing ? row.privileges : [])}
+      `}
+      <p id="modal-error" class="alert" hidden></p>
+      <div class="modal-actions">
+        <button class="primary" type="submit">Save</button>
+      </div>
+    </form>`;
+}
+
 function ticketsModal() {
   const modal = state.modal;
   const filtered = modal.rows.filter((row) => match(row, modal.search, ["customer_name", "customer_phone", "ticket_number"]));
@@ -1192,15 +1350,104 @@ function confirmModal() {
     </form>`;
 }
 
+function emptyOcr() {
+  return {
+    loading: false,
+    text: "",
+    confidence: null,
+    language: "eng",
+    receipt: "",
+    scanned_by: null,
+    scanned_by_name: "",
+    scanned_at: "",
+    error: "",
+    notice: "",
+  };
+}
+
+function ocrFromPayment(row) {
+  const saved = row?.ocr;
+  if (!saved?.text) return emptyOcr();
+  return {
+    ...emptyOcr(),
+    text: saved.text || "",
+    confidence: saved.confidence,
+    language: saved.language || "eng",
+    receipt: saved.receipt || "",
+    scanned_by: saved.scanned_by,
+    scanned_by_name: saved.scanned_by_name || "",
+    scanned_at: saved.scanned_at || "",
+  };
+}
+
+function paymentScanPanel(ocr, hasReceipt, locked = false) {
+  if (!hasReceipt) return `<p class="muted">No receipt was uploaded.</p>`;
+  if (ocr.loading) {
+    return `
+      <div class="scan-loading" role="status" aria-live="polite">
+        <div class="scan-loader" aria-hidden="true">
+          <span class="scan-loader-frame">${svg(glyph.scan)}</span>
+          <span class="scan-loader-beam"></span>
+        </div>
+        <p>Reading receipt…</p>
+      </div>`;
+  }
+  if (ocr.error) {
+    return `
+      <div class="scan-prompt">
+        <p class="status-msg alert">${svg(glyph.x)} ${esc(ocr.error)}</p>
+        <button type="button" class="ghost action-btn" data-act="scan-receipt" data-id="${esc(state.modal.row.id)}" ${locked ? "disabled" : ""}>${svg(glyph.scan)} Try again</button>
+      </div>`;
+  }
+  if (!ocr.text) {
+    return `
+      <div class="scan-prompt">
+        <p class="muted">${locked ? "No saved scan for this payment." : "Click Scan to read text from this receipt."}</p>
+        ${locked ? "" : `<button type="button" class="ghost action-btn" data-act="scan-receipt" data-id="${esc(state.modal.row.id)}">${svg(glyph.scan)} Scan</button>`}
+      </div>`;
+  }
+  const confidence = ocr.confidence == null ? "—" : `${esc(ocr.confidence)}%`;
+  const copied = Boolean(ocr.notice);
+  const receipt = ocr.receipt || "";
+  const scanned = `${ocr.scanned_by_name || "—"}${ocr.scanned_at ? ` · ${when(ocr.scanned_at)}` : ""}`;
+  return `
+    <div class="scan-result">
+      <div class="scan-bar">
+        <div class="scan-facts">
+          <span><em>Confidence</em> ${confidence}</span>
+          <span><em>Language</em> ${esc(ocr.language || "eng")}</span>
+          <span><em>Scanned by</em> ${esc(scanned)}</span>
+        </div>
+        <div class="scan-actions">
+          <button type="button" class="ghost action-btn ${copied ? "copied" : ""}" data-act="copy-ocr" ${ocr.text ? "" : "disabled"}>${copied ? `${svg(glyph.check)} Copied` : `${svg(glyph.copy)} Copy text`}</button>
+          <button type="button" class="ghost action-btn" data-act="scan-receipt" data-id="${esc(state.modal.row.id)}" ${locked ? "disabled" : ""}>${svg(glyph.scan)} Rescan</button>
+          <button type="button" class="danger action-btn" data-act="clear-ocr" ${locked ? "disabled" : ""}>${svg(glyph.trash)} Clear</button>
+        </div>
+      </div>
+      ${receipt ? `<p class="scan-ref"><em>Reference</em> <code title="${esc(receipt)}">${esc(receipt)}</code></p>` : ""}
+      <pre class="ocr-text" id="ocr-text">${esc(ocr.text)}</pre>
+    </div>`;
+}
+
 function paymentModal() {
-  const row = state.modal.row;
+  const modal = state.modal;
+  const row = modal.row;
   const src = safeSrc(row.screenshot_url);
   const pending = row.status === "pending";
+  const locked = !pending;
+  const tab = modal.tab === "scan" ? "scan" : "receipt";
+  const ocr = modal.ocr || emptyOcr();
   return `
-    <div class="modal-card wide">
+    <div class="modal-card wide payment-modal ${locked ? "is-locked" : ""}">
       ${modalClose()}
-      <h2>Payment</h2>
-      <dl>
+      <div class="payment-head">
+        <h2>Payment</h2>
+        <div class="payment-actions">
+          <button type="button" class="danger action-btn" data-act="reject" data-id="${esc(row.id)}" ${locked ? "disabled" : ""}>${svg(glyph.x)} Reject</button>
+          <button type="button" class="success action-btn" data-act="approve" data-id="${esc(row.id)}" ${locked ? "disabled" : ""}>${svg(glyph.check)} Approve</button>
+        </div>
+      </div>
+      <dl class="payment-grid">
         <div><dt>Buyer</dt><dd>${esc(row.customer_name)}</dd></div>
         <div><dt>Phone</dt><dd>${esc(row.customer_phone)}</dd></div>
         <div><dt>Lottery</dt><dd>${esc(row.lottery_title)}</dd></div>
@@ -1210,12 +1457,28 @@ function paymentModal() {
         <div><dt>Sender</dt><dd>${esc(row.sender_account || "—")}</dd></div>
         <div><dt>Status</dt><dd>${badge(row.status)}</dd></div>
         <div><dt>Date</dt><dd>${esc(when(row.created_at))}</dd></div>
+        <div><dt>Reviewed by</dt><dd>${esc(row.reviewed_by_name || "—")}${row.reviewed_at ? ` · ${esc(when(row.reviewed_at))}` : ""}</dd></div>
       </dl>
-      ${src ? `<img class="receipt" alt="Payment receipt" src="${esc(src)}">` : `<p class="muted">No receipt was uploaded.</p>`}
-      ${pending ? `<div class="modal-actions">
-        <button type="button" class="danger" data-act="reject" data-id="${esc(row.id)}">Reject</button>
-        <button type="button" class="primary" data-act="approve" data-id="${esc(row.id)}">Approve</button>
-      </div>` : ""}
+      <form id="txn-form" class="txn-form" data-id="${esc(row.id)}">
+        <label class="txn-field">
+          Transaction ID
+          <input name="transaction_id" maxlength="64" spellcheck="false" autocomplete="off" placeholder="e.g. FT26305GCDDP" value="${esc(row.transaction_id || "")}" ${locked ? "readonly disabled" : ""}>
+        </label>
+        <button type="submit" class="ghost action-btn" ${locked ? "disabled" : ""}>${svg(glyph.check)} Save ID</button>
+        <p class="muted txn-hint">${locked ? "This payment is closed. Actions are locked." : "Unique bank reference. Required before approve. Blocks receipt reuse."}</p>
+      </form>
+      ${src ? `<div class="payment-tabs" role="tablist" aria-label="Payment media">
+        <button type="button" class="payment-tab ${tab === "receipt" ? "on" : ""}" role="tab" aria-selected="${tab === "receipt" ? "true" : "false"}" data-act="payment-tab" data-tab="receipt">${svg(glyph.image)} Receipt</button>
+        <button type="button" class="payment-tab ${tab === "scan" ? "on" : ""}" role="tab" aria-selected="${tab === "scan" ? "true" : "false"}" data-act="payment-tab" data-tab="scan">${svg(glyph.scan)} Scan</button>
+      </div>
+      <div class="payment-pane">
+        <div class="payment-panel ${tab === "receipt" ? "on" : "off"}" role="tabpanel" aria-hidden="${tab === "receipt" ? "false" : "true"}">
+          <img class="receipt" alt="Payment receipt" src="${esc(src)}">
+        </div>
+        <div class="payment-panel ${tab === "scan" ? "on" : "off"}" role="tabpanel" aria-hidden="${tab === "scan" ? "false" : "true"}">
+          ${paymentScanPanel(ocr, true, locked)}
+        </div>
+      </div>` : `<div class="payment-pane"><p class="muted">No receipt was uploaded.</p></div>`}
     </div>`;
 }
 
@@ -1388,17 +1651,30 @@ async function refresh() {
     if (board.res.ok && board.body.stats) state.pending = Number(board.body.stats.pendingPayments || 0);
     return;
   }
+  if (state.view === "admins") {
+    if (!isSuper()) throw new Error("Super admin only");
+    const { res, body } = await request("/api/admin-staff");
+    if (seq !== loadSeq) return;
+    unauthorized(res);
+    if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load admin accounts"));
+    state.admins.rows = body.data || [];
+    state.admins.privileges = body.privileges || [];
+    return;
+  }
   if (state.view === "settings") {
     const { res, body } = await request("/api/admin-settings");
     if (seq !== loadSeq) return;
     unauthorized(res);
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load settings"));
     const brand = body.branding || {};
+    const ocr = body.ocr || {};
     state.settings = {
       app_name: brand.app_name || appName,
       developer_name: brand.developer_name || "",
       developer_url: brand.developer_url || "",
       credit_prefix: brand.credit_prefix || "Developed by",
+      ocr_scan_limit: ocr.scan_limit ?? 60,
+      ocr_scan_window_minutes: ocr.scan_window_minutes ?? 15,
       loaded: true,
     };
     return;
@@ -1448,11 +1724,7 @@ function lotteryPhotos(row) {
 }
 
 async function onClick(event) {
-  if (event.target.classList.contains("backdrop")) {
-    closeModal();
-    render();
-    return;
-  }
+  if (event.target.classList.contains("backdrop")) return;
   const el = event.target.closest("[data-act]");
   if (!el || el.disabled) return;
   const act = el.dataset.act;
@@ -1520,6 +1792,7 @@ async function onClick(event) {
     }
     if (act === "nav") {
       const view = el.dataset.view;
+      if (!canView(view)) return;
       if (el.dataset.status && state[view]) {
         state[view].status = el.dataset.status;
         state[view].page = 1;
@@ -1705,22 +1978,167 @@ async function onClick(event) {
       return;
     }
     if (act === "view-payment") {
+      const row = state.payments.rows.find((item) => String(item.id) === String(id))
+        || (state.board.recentPayments || []).find((item) => String(item.id) === String(id));
+      if (!row) return;
+      const ocr = ocrFromPayment(row);
       state.modal = {
         kind: "payment",
-        row: state.payments.rows.find((row) => String(row.id) === String(id))
-          || (state.board.recentPayments || []).find((row) => String(row.id) === String(id)),
+        row,
+        tab: ocr.text ? "scan" : "receipt",
+        ocr,
       };
       render();
       return;
     }
+    if (act === "payment-tab") {
+      if (state.modal?.kind !== "payment") return;
+      state.modal.tab = el.dataset.tab === "scan" ? "scan" : "receipt";
+      if (state.modal.ocr) state.modal.ocr.notice = "";
+      render();
+      return;
+    }
+    if (act === "scan-receipt") {
+      if (state.modal?.kind !== "payment" || !state.modal.row) return;
+      if (state.modal.row.status !== "pending") return;
+      const paymentRow = state.modal.row;
+      const scanId = String(paymentRow.id);
+      state.modal.tab = "scan";
+      state.modal.ocr = {
+        ...(state.modal.ocr || emptyOcr()),
+        loading: true,
+        error: "",
+        notice: "",
+      };
+      render();
+      try {
+        const { res, body } = await request("/api/scan-receipt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ payment_id: paymentRow.id }),
+        });
+        unauthorized(res);
+        if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not scan receipt"));
+        if (state.modal?.kind !== "payment" || String(state.modal.row?.id) !== scanId) return;
+        state.modal.ocr = {
+          loading: false,
+          text: body.text || "",
+          confidence: body.confidence,
+          language: body.language || "eng",
+          receipt: body.receipt || "",
+          scanned_by: body.scanned_by,
+          scanned_by_name: body.scanned_by_name || "",
+          scanned_at: body.scanned_at || "",
+          error: "",
+          notice: "",
+        };
+        const txn = body.transaction_id || state.modal.row.transaction_id || "";
+        state.modal.row = {
+          ...state.modal.row,
+          transaction_id: txn,
+          scanned_by_name: body.scanned_by_name || state.modal.row.scanned_by_name || "",
+          ocr: {
+            text: state.modal.ocr.text,
+            confidence: state.modal.ocr.confidence,
+            language: state.modal.ocr.language,
+            receipt: state.modal.ocr.receipt,
+            scanned_at: state.modal.ocr.scanned_at,
+            scanned_by: state.modal.ocr.scanned_by,
+            scanned_by_name: state.modal.ocr.scanned_by_name,
+          },
+        };
+        const listRow = state.payments.rows.find((item) => String(item.id) === scanId);
+        if (listRow) {
+          listRow.ocr = state.modal.row.ocr;
+          listRow.transaction_id = txn;
+          listRow.scanned_by_name = state.modal.row.scanned_by_name;
+        }
+        if (body.transaction_conflict) {
+          state.error = `Transaction ID from scan is already used on payment #${body.transaction_conflict}. Enter a different ID.`;
+        } else if (body.extracted_transaction_id && txn) {
+          state.notice = `Transaction ID saved: ${txn}`;
+        }
+      } catch (error) {
+        if (error.unauthorized) {
+          state.admin = null;
+          state.modal = null;
+          state.error = "Sign in again";
+          render();
+          return;
+        }
+        if (state.modal?.kind !== "payment" || String(state.modal.row?.id) !== scanId) return;
+        state.modal.ocr = {
+          ...(state.modal.ocr || emptyOcr()),
+          loading: false,
+          error: error.message || "Could not scan receipt",
+        };
+      }
+      render();
+      return;
+    }
+    if (act === "copy-ocr") {
+      const text = state.modal?.kind === "payment" ? state.modal.ocr?.text : "";
+      if (!text || state.modal.ocr?.notice) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        state.modal.ocr.notice = "Copied";
+        render();
+        const paymentId = state.modal.row?.id;
+        setTimeout(() => {
+          if (state.modal?.kind !== "payment" || state.modal.row?.id !== paymentId || !state.modal.ocr) return;
+          state.modal.ocr.notice = "";
+          render();
+        }, 1600);
+      } catch {
+        if (state.modal?.ocr) state.modal.ocr.notice = "";
+        state.error = "Could not copy text";
+        render();
+      }
+      return;
+    }
+    if (act === "clear-ocr") {
+      if (state.modal?.kind !== "payment" || !state.modal.row) return;
+      if (state.modal.row.status !== "pending") return;
+      const paymentId = state.modal.row.id;
+      try {
+        await postOk("/api/clear-receipt-ocr", { payment_id: paymentId });
+        state.modal.ocr = emptyOcr();
+        state.modal.tab = "scan";
+        state.modal.row = { ...state.modal.row, ocr: null };
+        const listRow = state.payments.rows.find((item) => String(item.id) === String(paymentId));
+        if (listRow) listRow.ocr = null;
+        state.notice = "Scan cleared";
+      } catch (error) {
+        if (error.unauthorized) {
+          state.admin = null;
+          state.modal = null;
+          state.error = "Sign in again";
+        } else {
+          state.error = error.message || "Could not clear scan";
+        }
+      }
+      render();
+      return;
+    }
     if (act === "approve" || act === "reject") {
-      const row = state.payments.rows.find((item) => String(item.id) === String(id));
+      const row = state.payments.rows.find((item) => String(item.id) === String(id))
+        || (state.modal?.kind === "payment" ? state.modal.row : null);
+      if (!row || row.status !== "pending") return;
+      if (act === "approve" && !String(row?.transaction_id || "").trim()) {
+        state.error = "Enter and save the bank transaction ID before approving";
+        if (state.modal?.kind === "payment") render();
+        else {
+          state.modal = { kind: "payment", row, tab: "receipt", ocr: ocrFromPayment(row) };
+          render();
+        }
+        return;
+      }
       state.modal = {
         kind: "confirm",
         act,
         id,
         title: act === "approve" ? "Approve payment" : "Reject payment",
-        message: `${act === "approve" ? "Approve" : "Reject"} ${row?.customer_name || "this payment"} for ${money(row?.amount)}?`,
+        message: `${act === "approve" ? "Approve" : "Reject"} ${row?.customer_name || "this payment"} for ${money(row?.amount)}${row?.transaction_id ? ` · ${row.transaction_id}` : ""}?`,
       };
       render();
       return;
@@ -1751,6 +2169,31 @@ async function onClick(event) {
           account_number: row.account_number,
           status: active ? "inactive" : "active",
         },
+      };
+      render();
+      return;
+    }
+    if (act === "new-admin") {
+      state.modal = { kind: "admin", row: null };
+      render();
+      return;
+    }
+    if (act === "edit-admin") {
+      const row = state.admins.rows.find((item) => String(item.id) === String(id));
+      if (!row) return;
+      state.modal = { kind: "admin", row };
+      render();
+      return;
+    }
+    if (act === "admin-status") {
+      const row = state.admins.rows.find((item) => String(item.id) === String(id));
+      if (!row || row.role === "super") return;
+      state.modal = {
+        kind: "confirm",
+        act: "admin-status",
+        title: row.active ? "Disable admin" : "Enable admin",
+        message: `${row.username} will be ${row.active ? "unable to sign in" : "able to sign in again"}.`,
+        payload: { id: row.id, active: !row.active },
       };
       render();
       return;
@@ -1946,7 +2389,8 @@ async function submitLogin(form) {
     return;
   }
   state.admin = body.admin;
-  state.view = viewFromHash();
+  state.view = canView(viewFromHash()) ? viewFromHash() : firstAllowedView();
+  location.hash = viewHash[state.view] || "dashboard";
   try {
     await refresh();
   } catch (error) {
@@ -2057,6 +2501,9 @@ async function submitConfirm() {
     } else if (modal.act === "bank-status") {
       await postOk("/api/admin-update-bank-account", modal.payload);
       state.notice = "Bank account updated";
+    } else if (modal.act === "admin-status") {
+      await postOk("/api/admin-staff-update", modal.payload);
+      state.notice = modal.payload.active ? "Admin enabled" : "Admin disabled";
     } else if (modal.act === "approve") {
       await postOk("/api/approve-payment", { payment_id: modal.id });
       state.notice = "Payment approved";
@@ -2099,6 +2546,59 @@ async function submitPassword(form) {
   }
 }
 
+function formPrivileges(form) {
+  return [...form.querySelectorAll('input[name="privileges"]:checked')].map((input) => input.value);
+}
+
+async function submitAdmin(form) {
+  const data = Object.fromEntries(new FormData(form));
+  const button = form.querySelector("[type=submit]");
+  const adminId = data.admin_id || data.id;
+  const editing = Boolean(adminId);
+  const editingRow = editing
+    ? state.admins.rows.find((row) => String(row.id) === String(adminId))
+    : null;
+  const isSuperRow = editingRow?.role === "super";
+  button.disabled = true;
+  try {
+    if (editing) {
+      const payload = {
+        id: Number(adminId),
+        name: data.name,
+        phone: data.phone || "",
+      };
+      if (!isSuperRow) {
+        const privileges = formPrivileges(form);
+        if (!privileges.length) throw new Error("Pick at least one privilege");
+        payload.privileges = privileges;
+        if (data.password) payload.password = data.password;
+      }
+      await postOk("/api/admin-staff-update", payload);
+      state.notice = "Admin updated";
+    } else {
+      const privileges = formPrivileges(form);
+      if (!privileges.length) throw new Error("Pick at least one privilege");
+      await postOk("/api/admin-staff", {
+        name: data.name,
+        username: data.username,
+        phone: data.phone || "",
+        password: data.password,
+        privileges,
+      });
+      state.notice = "Admin created";
+    }
+    state.modal = null;
+    state.error = "";
+    await refresh();
+    render();
+  } catch (error) {
+    if (error.unauthorized) caught(error);
+    else showModalError(error);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function submitSettings(form) {
   const data = Object.fromEntries(new FormData(form));
   const button = form.querySelector("[type=submit]");
@@ -2112,23 +2612,28 @@ async function submitSettings(form) {
         developer_name: data.developer_name,
         developer_url: data.developer_url,
         credit_prefix: data.credit_prefix,
+        ocr_scan_limit: data.ocr_scan_limit,
+        ocr_scan_window_minutes: data.ocr_scan_window_minutes,
       }),
     });
     unauthorized(res);
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not save settings"));
     const brand = body.branding || {};
+    const ocr = body.ocr || {};
     state.settings = {
       app_name: brand.app_name,
       developer_name: brand.developer_name,
       developer_url: brand.developer_url,
       credit_prefix: brand.credit_prefix,
+      ocr_scan_limit: ocr.scan_limit ?? Number(data.ocr_scan_limit),
+      ocr_scan_window_minutes: ocr.scan_window_minutes ?? Number(data.ocr_scan_window_minutes),
       loaded: true,
     };
     appName = brand.app_name;
     const meta = document.querySelector('meta[name="app-name"]');
     if (meta) meta.content = appName;
     document.title = appName;
-    state.notice = "Branding saved";
+    state.notice = "Settings saved";
     state.error = "";
     render();
   } catch (error) {
@@ -2138,30 +2643,70 @@ async function submitSettings(form) {
   }
 }
 
+async function submitTxn(form) {
+  if (state.modal?.kind !== "payment" || !state.modal.row) return;
+  if (state.modal.row.status !== "pending") return;
+  const data = Object.fromEntries(new FormData(form));
+  const button = form.querySelector("[type=submit]");
+  button.disabled = true;
+  try {
+    const { res, body } = await request("/api/set-transaction-id", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        payment_id: state.modal.row.id,
+        transaction_id: data.transaction_id,
+      }),
+    });
+    unauthorized(res);
+    if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not save transaction ID"));
+    const txn = body.transaction_id || "";
+    state.modal.row = { ...state.modal.row, transaction_id: txn };
+    const listRow = state.payments.rows.find((item) => String(item.id) === String(state.modal.row.id));
+    if (listRow) listRow.transaction_id = txn;
+    state.notice = `Transaction ID saved: ${txn}`;
+    state.error = "";
+    render();
+  } catch (error) {
+    if (error.unauthorized) {
+      state.admin = null;
+      state.modal = null;
+      state.error = "Sign in again";
+      render();
+    } else {
+      state.error = error.message || "Could not save transaction ID";
+      render();
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function onSubmit(event) {
   event.preventDefault();
-  if (event.target.id === "login-form") submitLogin(event.target);
-  else if (event.target.id === "draw-form") submitDraw(event.target);
-  else if (event.target.id === "bank-form") submitBank(event.target);
-  else if (event.target.id === "confirm-form") submitConfirm();
-  else if (event.target.id === "password-form") submitPassword(event.target);
-  else if (event.target.id === "settings-form") submitSettings(event.target);
+  // Prefer getAttribute: a control named "id" shadows form.id
+  const formId = event.target.getAttribute?.("id") || "";
+  if (formId === "login-form") submitLogin(event.target);
+  else if (formId === "draw-form") submitDraw(event.target);
+  else if (formId === "bank-form") submitBank(event.target);
+  else if (formId === "confirm-form") submitConfirm();
+  else if (formId === "password-form") submitPassword(event.target);
+  else if (formId === "settings-form") submitSettings(event.target);
+  else if (formId === "admin-form") submitAdmin(event.target);
+  else if (formId === "txn-form") submitTxn(event.target);
 }
 
 document.addEventListener("click", (event) => { onClick(event); });
 document.addEventListener("input", onInput);
 document.addEventListener("change", onChange);
 document.addEventListener("submit", onSubmit);
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && state.modal) {
-    state.modal = null;
-    render();
-  }
-});
-
 async function followHash() {
   if (!state.admin) return;
-  const view = viewFromHash();
+  let view = viewFromHash();
+  if (!canView(view)) {
+    view = firstAllowedView();
+    location.hash = viewHash[view] || "dashboard";
+  }
   const same = view === state.view;
   state.view = view;
   state.menuOpen = false;
@@ -2181,15 +2726,19 @@ async function followHash() {
 }
 
 async function boot() {
-  state.view = viewFromHash();
+  let view = viewFromHash();
   const { res, body } = await request("/api/admin-session");
   if (res.ok && body.success) {
     state.admin = body.admin;
+    if (!canView(view)) view = firstAllowedView();
+    state.view = view;
     try {
       await refresh();
     } catch (error) {
       state.error = error.message || "Could not load staff data";
     }
+  } else {
+    state.view = view;
   }
   render();
 }

@@ -198,6 +198,62 @@ const MIGRATIONS = [
       }
     },
   },
+  {
+    id: "005_receipt_ocr_audit",
+    async up(conn) {
+      // Latest OCR result + who scanned it (sub-admin accountability).
+      await ensureColumn(conn, "orders", "ocr_text", "MEDIUMTEXT NULL");
+      await ensureColumn(conn, "orders", "ocr_confidence", "DECIMAL(5,1) NULL");
+      await ensureColumn(conn, "orders", "ocr_language", "VARCHAR(16) NULL");
+      await ensureColumn(conn, "orders", "ocr_receipt", "VARCHAR(255) NULL");
+      await ensureColumn(conn, "orders", "ocr_scanned_at", "DATETIME(3) NULL");
+      await ensureColumn(conn, "orders", "ocr_scanned_by", "INT NULL");
+      await ensureIndex(
+        conn,
+        "orders",
+        "idx_orders_ocr_scanned_by",
+        "ALTER TABLE orders ADD KEY idx_orders_ocr_scanned_by (ocr_scanned_by)",
+      );
+      await ensureIndex(
+        conn,
+        "orders",
+        "idx_orders_reviewed_by",
+        "ALTER TABLE orders ADD KEY idx_orders_reviewed_by (reviewed_by)",
+      );
+    },
+  },
+  {
+    id: "006_transaction_id",
+    async up(conn) {
+      // Bank transfer reference (e.g. CBE FT26305GCDDP). Unique when set — blocks receipt reuse.
+      await ensureColumn(conn, "orders", "transaction_id", "VARCHAR(64) NULL");
+      await ensureIndex(
+        conn,
+        "orders",
+        "uniq_orders_transaction_id",
+        "ALTER TABLE orders ADD UNIQUE KEY uniq_orders_transaction_id (transaction_id)",
+      );
+    },
+  },
+  {
+    id: "007_admin_roles",
+    async up(conn) {
+      // Existing account(s) become super admin; new staff get role=admin + privilege list.
+      await ensureColumn(conn, "admins", "role", "VARCHAR(16) NOT NULL DEFAULT 'admin'");
+      await ensureColumn(conn, "admins", "privileges", "TEXT NULL");
+      await ensureColumn(conn, "admins", "active", "TINYINT NOT NULL DEFAULT 1");
+      // First existing account becomes super; ensureAdmin() also promotes the env username.
+      await conn.query("UPDATE admins SET role = 'super' ORDER BY id ASC LIMIT 1");
+    },
+  },
+  {
+    id: "008_admin_profile",
+    async up(conn) {
+      await ensureColumn(conn, "admins", "name", "VARCHAR(80) NOT NULL DEFAULT ''");
+      await ensureColumn(conn, "admins", "phone", "VARCHAR(20) NULL");
+      await conn.query("UPDATE admins SET name = username WHERE name = '' OR name IS NULL");
+    },
+  },
 ];
 
 export async function runMigrations(pool) {
