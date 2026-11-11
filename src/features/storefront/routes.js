@@ -101,15 +101,15 @@ function lotteryBody(body) {
   };
 }
 
-router.get("/time.php", wrap(async (req, res) => {
+router.get("/time", wrap(async (req, res) => {
   res.json(clockPayload());
 }));
 
-router.get("/lotteries.php", wrap(async (req, res) => {
+router.get("/lotteries", wrap(async (req, res) => {
   res.json({ success: true, data: await storeLotteries() });
 }));
 
-router.get("/telegram.php", wrap(async (req, res) => {
+router.get("/telegram", wrap(async (req, res) => {
   const session = await readSession(req.cookies?.buyer_sid, "buyer");
   const customer = await customerFromSession(session);
   res.json({
@@ -120,7 +120,7 @@ router.get("/telegram.php", wrap(async (req, res) => {
 }));
 
 // Click and Telegram's window live in public/telegram.js. This checks the signature and starts the session.
-router.post("/telegram-oidc.php", siteLimiter(20), wrap(async (req, res) => {
+router.post("/telegram-oidc", siteLimiter(20), wrap(async (req, res) => {
   if (req.body?.id_token) {
     const done = await completeTelegramOidc(req.body.id_token);
     res.cookie("buyer_sid", done.session.id, cookieOptions(done.session.expiresAt));
@@ -131,25 +131,25 @@ router.post("/telegram-oidc.php", siteLimiter(20), wrap(async (req, res) => {
   res.json({ success: true, nonce: begun.nonce, clientId: begun.clientId });
 }));
 
-router.post("/telegram-webapp.php", siteLimiter(20), wrap(async (req, res) => {
+router.post("/telegram-webapp", siteLimiter(20), wrap(async (req, res) => {
   const done = await completeTelegramWebApp(req.body?.initData);
   res.cookie("buyer_sid", done.session.id, cookieOptions(done.session.expiresAt));
   res.json({ success: true, user: customerProfile(done.customer) });
 }));
 
-router.post("/telegram-logout.php", wrap(async (req, res) => {
+router.post("/telegram-logout", wrap(async (req, res) => {
   await destroySession(req.cookies?.buyer_sid);
   res.clearCookie("buyer_sid", clearCookieOptions());
   res.json({ success: true });
 }));
 
-router.get("/tickets.php", wrap(async (req, res) => {
+router.get("/tickets", wrap(async (req, res) => {
   const lotteryId = idOf(req.query.lottery_id);
   if (!lotteryId) throw httpError(404, "Lottery not found");
   res.json({ success: true, data: await storeSoldTickets(lotteryId) });
 }));
 
-router.get("/my-tickets.php", siteLimiter(30), wrap(async (req, res) => {
+router.get("/my-tickets", siteLimiter(30), wrap(async (req, res) => {
   const session = await readSession(req.cookies?.buyer_sid, "buyer");
   const customer = await customerFromSession(session);
   if (!customer?.phone) {
@@ -159,21 +159,21 @@ router.get("/my-tickets.php", siteLimiter(30), wrap(async (req, res) => {
   res.json({ success: true, signedIn: true, data: await storeMyTickets(customer.phone) });
 }));
 
-router.get("/winners.php", wrap(async (req, res) => {
+router.get("/winners", wrap(async (req, res) => {
   res.json({ success: true, data: await storeWinners() });
 }));
 
-router.get("/bank-accounts.php", wrap(async (req, res) => {
+router.get("/bank-accounts", wrap(async (req, res) => {
   res.json({ success: true, data: await storeBanks(true) });
 }));
 
-router.get("/ticket-check.php", staff, wrap(async (req, res) => {
+router.get("/ticket-check", staff, wrap(async (req, res) => {
   const lotteryId = idOf(req.query.lottery_id);
   if (!lotteryId) throw httpError(400, "Please select lottery and enter ticket number.");
   res.json({ success: true, data: await storeTicketCheck(lotteryId, req.query.ticket_number) });
 }));
 
-router.post("/upload-payment.php", siteLimiter(20), (req, res) => {
+router.post("/upload-payment", siteLimiter(20), (req, res) => {
   screenshotUpload.single("screenshot")(req, res, (error) => {
     if (error || !req.file) {
       res.status(400).json({ success: false, message: "Upload a JPEG, PNG, or WebP receipt under 10 MB" });
@@ -183,7 +183,7 @@ router.post("/upload-payment.php", siteLimiter(20), (req, res) => {
   });
 });
 
-router.post("/create-order.php", siteLimiter(20), wrap(async (req, res) => {
+router.post("/create-order", siteLimiter(20), wrap(async (req, res) => {
   const lotteryId = idOf(req.body?.lottery_id);
   if (!lotteryId) throw httpError(400, "Choose a lottery");
   const orderId = await createStoreOrder({
@@ -212,18 +212,18 @@ router.get("/receipt-files/:name", staff, (req, res) => {
   res.sendFile(full);
 });
 
-router.get("/admin-settings.php", staff, wrap(async (req, res) => {
+router.get("/admin-settings", staff, wrap(async (req, res) => {
   res.json({ success: true, branding: await getBrandingSettings() });
 }));
 
-router.post("/admin-settings.php", staff, siteLimiter(20), wrap(async (req, res) => {
+router.post("/admin-settings", staff, siteLimiter(20), wrap(async (req, res) => {
   const branding = await updateBrandingSettings(req.body || {});
   invalidateBuyerBundle();
   publishBuyerBundle();
   res.json({ success: true, branding });
 }));
 
-router.get("/dashboard.php", staff, wrap(async (req, res) => {
+router.get("/dashboard", staff, wrap(async (req, res) => {
   const board = await storeDashboard({
     from: req.query.from,
     to: req.query.to,
@@ -235,7 +235,7 @@ router.get("/dashboard.php", staff, wrap(async (req, res) => {
   res.json({ success: true, ...board });
 }));
 
-router.get("/payments.php", staff, wrap(async (req, res) => {
+router.get("/payments", staff, wrap(async (req, res) => {
   const page = intValue(req.query.page, 1, 100_000);
   const result = await storePayments({
     status: String(req.query.status || "all"),
@@ -254,21 +254,21 @@ router.get("/payments.php", staff, wrap(async (req, res) => {
   });
 }));
 
-router.post("/approve-payment.php", staff, wrap(async (req, res) => {
+router.post("/approve-payment", staff, wrap(async (req, res) => {
   const orderId = idOf(req.body?.payment_id);
   if (!orderId) throw httpError(404, "Order not found");
   await approveOrder(orderId, req.admin.id);
   res.json({ success: true });
 }));
 
-router.post("/reject-payment.php", staff, wrap(async (req, res) => {
+router.post("/reject-payment", staff, wrap(async (req, res) => {
   const orderId = idOf(req.body?.payment_id);
   if (!orderId) throw httpError(404, "Order not found");
   await rejectOrder(orderId, req.admin.id);
   res.json({ success: true });
 }));
 
-router.post("/update-payment-status.php", staff, wrap(async (req, res) => {
+router.post("/update-payment-status", staff, wrap(async (req, res) => {
   const orderId = idOf(req.body?.payment_id);
   const nextStatus = String(req.body?.new_status || "");
   if (!orderId) throw httpError(404, "Order not found");
@@ -278,7 +278,7 @@ router.post("/update-payment-status.php", staff, wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
-router.post("/upload-lottery-image.php", staff, (req, res) => {
+router.post("/upload-lottery-image", staff, (req, res) => {
   lotteryUpload.single("image")(req, res, (error) => {
     if (error || !req.file) {
       res.status(400).json({ success: false, message: "Upload a JPEG, PNG, or WebP image under 5 MB" });
@@ -288,7 +288,7 @@ router.post("/upload-lottery-image.php", staff, (req, res) => {
   });
 });
 
-router.post("/admin-create-lottery.php", staff, wrap(async (req, res) => {
+router.post("/admin-create-lottery", staff, wrap(async (req, res) => {
   const id = await createLottery(lotteryBody(req.body));
   const images = Array.isArray(req.body?.image_urls)
     ? storedImages(req.body.image_urls)
@@ -297,7 +297,7 @@ router.post("/admin-create-lottery.php", staff, wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
-router.post("/admin-update-lottery.php", staff, wrap(async (req, res) => {
+router.post("/admin-update-lottery", staff, wrap(async (req, res) => {
   const id = idOf(req.body?.id);
   if (!id) throw httpError(404, "Lottery not found");
   await updateLottery(id, lotteryBody(req.body));
@@ -306,25 +306,25 @@ router.post("/admin-update-lottery.php", staff, wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
-router.post("/admin-delete-lottery.php", staff, wrap(async (req, res) => {
+router.post("/admin-delete-lottery", staff, wrap(async (req, res) => {
   const id = idOf(req.body?.id);
   if (!id) throw httpError(404, "Lottery not found");
   await deleteLottery(id);
   res.json({ success: true });
 }));
 
-router.post("/admin-feature-lottery.php", staff, wrap(async (req, res) => {
+router.post("/admin-feature-lottery", staff, wrap(async (req, res) => {
   const id = idOf(req.body?.id);
   if (!id) throw httpError(404, "Lottery not found");
   await featureLottery(id);
   res.json({ success: true });
 }));
 
-router.get("/admin-lotteries.php", staff, wrap(async (req, res) => {
+router.get("/admin-lotteries", staff, wrap(async (req, res) => {
   res.json({ success: true, data: await storeLotteries({ includeHidden: true }) });
 }));
 
-router.get("/admin-report.php", staff, wrap(async (req, res) => {
+router.get("/admin-report", staff, wrap(async (req, res) => {
   if (req.query.format === "json") {
     res.set("Cache-Control", "no-store");
     res.json({ success: true, ...(await reportData(req.query)) });
@@ -337,7 +337,7 @@ router.get("/admin-report.php", staff, wrap(async (req, res) => {
   res.send(file.body);
 }));
 
-router.post("/admin-hide-lottery.php", staff, wrap(async (req, res) => {
+router.post("/admin-hide-lottery", staff, wrap(async (req, res) => {
   const id = idOf(req.body?.id);
   if (!id) throw httpError(404, "Lottery not found");
   const hidden = req.body?.hidden === true || req.body?.hidden === 1 || req.body?.hidden === "1";
@@ -345,15 +345,15 @@ router.post("/admin-hide-lottery.php", staff, wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
-router.get("/admin-winners.php", staff, wrap(async (req, res) => {
+router.get("/admin-winners", staff, wrap(async (req, res) => {
   res.json({ success: true, data: await storeWinners(true) });
 }));
 
-router.get("/admin-bank-accounts.php", staff, wrap(async (req, res) => {
+router.get("/admin-bank-accounts", staff, wrap(async (req, res) => {
   res.json({ success: true, data: await storeBanks(false) });
 }));
 
-router.post("/admin-create-bank-account.php", staff, wrap(async (req, res) => {
+router.post("/admin-create-bank-account", staff, wrap(async (req, res) => {
   const id = await addBank({
     bankName: req.body?.bank_name,
     accountName: req.body?.account_name,
@@ -363,7 +363,7 @@ router.post("/admin-create-bank-account.php", staff, wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
-router.post("/admin-update-bank-account.php", staff, wrap(async (req, res) => {
+router.post("/admin-update-bank-account", staff, wrap(async (req, res) => {
   const id = idOf(req.body?.id);
   if (!id) throw httpError(404, "Bank account not found");
   await updateBank(id, {
@@ -375,18 +375,18 @@ router.post("/admin-update-bank-account.php", staff, wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
-router.get("/completed-lotteries.php", staff, wrap(async (req, res) => {
+router.get("/completed-lotteries", staff, wrap(async (req, res) => {
   const rows = await storeLotteries({ includeHidden: true });
   res.json({ success: true, data: rows.filter((row) => row.status === "completed") });
 }));
 
-router.get("/lottery-orders.php", staff, wrap(async (req, res) => {
+router.get("/lottery-orders", staff, wrap(async (req, res) => {
   const lotteryId = idOf(req.query.lottery_id);
   if (!lotteryId) throw httpError(404, "Lottery not found");
   res.json({ success: true, data: await storeLotteryOrders(lotteryId) });
 }));
 
-router.post("/announce-winner.php", staff, wrap(async (req, res) => {
+router.post("/announce-winner", staff, wrap(async (req, res) => {
   const lotteryId = idOf(req.body?.lottery_id);
   const orderId = idOf(req.body?.order_id);
   const ticketNumber = intValue(String(req.body?.winning_ticket_number || "").replace(/\D/g, ""), 1, 100_000);
@@ -395,7 +395,7 @@ router.post("/announce-winner.php", staff, wrap(async (req, res) => {
   res.json({ success: true });
 }));
 
-router.get("/lottery-backup.php", staff, (req, res) => {
+router.get("/lottery-backup", staff, (req, res) => {
   res.status(400).json({ success: false, message: "Backup is not available yet" });
 });
 

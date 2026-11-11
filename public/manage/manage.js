@@ -791,13 +791,10 @@ function paymentsView() {
       ],
       rows: info.rows,
       actions: (row) => {
-        const pending = row.status === "pending";
         const src = safeSrc(row.screenshot_url);
         return iconSlots([
           iconButton({ act: "view-payment", id: row.id, label: "View", name: "eye" }),
           src ? iconButton({ act: "see-image", src, caption: `${row.customer_name} receipt`, label: "See receipt", name: "image" }) : "",
-          pending ? iconButton({ act: "approve", id: row.id, label: "Approve", name: "check", tone: "good" }) : "",
-          pending ? iconButton({ act: "reject", id: row.id, label: "Reject", name: "x", tone: "bad" }) : "",
         ]);
       },
     })}
@@ -1187,6 +1184,7 @@ function confirmModal() {
 function paymentModal() {
   const row = state.modal.row;
   const src = safeSrc(row.screenshot_url);
+  const pending = row.status === "pending";
   return `
     <div class="modal-card">
       <h2>Payment</h2>
@@ -1202,7 +1200,11 @@ function paymentModal() {
         <div><dt>Date</dt><dd>${esc(when(row.created_at))}</dd></div>
       </dl>
       ${src ? `<img class="receipt" alt="Payment receipt" src="${esc(src)}">` : `<p class="muted">No receipt was uploaded.</p>`}
-      <div class="modal-actions"><button type="button" class="ghost" data-act="close-modal">Close</button></div>
+      <div class="modal-actions">
+        <button type="button" class="ghost" data-act="close-modal">Close</button>
+        ${pending ? `<button type="button" class="danger" data-act="reject" data-id="${esc(row.id)}">Reject</button>` : ""}
+        ${pending ? `<button type="button" class="primary" data-act="approve" data-id="${esc(row.id)}">Approve</button>` : ""}
+      </div>
     </div>`;
 }
 
@@ -1291,7 +1293,7 @@ async function refresh() {
     });
     if (state.board.from) params.set("from", asNairobi(state.board.from).toISOString());
     if (state.board.to) params.set("to", asNairobi(state.board.to).toISOString());
-    const { res, body } = await request(`/api/dashboard.php?${params}`);
+    const { res, body } = await request(`/api/dashboard?${params}`);
     if (seq !== loadSeq) return;
     unauthorized(res);
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load the dashboard"));
@@ -1311,7 +1313,7 @@ async function refresh() {
       page: String(state.payments.page),
       page_size: String(state.payments.pageSize),
     });
-    const { res, body } = await request(`/api/payments.php?${params}`);
+    const { res, body } = await request(`/api/payments?${params}`);
     if (seq !== loadSeq) return;
     unauthorized(res);
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load payments"));
@@ -1323,23 +1325,23 @@ async function refresh() {
     return;
   }
   if (state.view === "banks") {
-    const { res, body } = await request("/api/admin-bank-accounts.php");
+    const { res, body } = await request("/api/admin-bank-accounts");
     if (seq !== loadSeq) return;
     unauthorized(res);
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load bank accounts"));
     state.banks.rows = body.data || [];
   } else if (state.view === "winners") {
-    const { res, body } = await request("/api/admin-winners.php");
+    const { res, body } = await request("/api/admin-winners");
     if (seq !== loadSeq) return;
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load winners"));
     state.winners.rows = body.data || [];
-    const board = await request("/api/dashboard.php");
+    const board = await request("/api/dashboard");
     if (seq !== loadSeq) return;
     if (board.res.ok && board.body.stats) state.pending = Number(board.body.stats.pendingPayments || 0);
     return;
   }
   if (state.view === "customers") {
-    const { res, body } = await request("/api/admin-customers.php");
+    const { res, body } = await request("/api/admin-customers");
     if (seq !== loadSeq) return;
     unauthorized(res);
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load customers"));
@@ -1348,7 +1350,7 @@ async function refresh() {
   }
   if (state.view === "report") {
     ensureReportRange();
-    const list = await request("/api/admin-lotteries.php");
+    const list = await request("/api/admin-lotteries");
     if (seq !== loadSeq) return;
     unauthorized(list.res);
     if (!list.res.ok || list.body.success === false) throw new Error(messageOf(list.body, "Could not load lotteries"));
@@ -1361,7 +1363,7 @@ async function refresh() {
       state.report.loading = false;
       return;
     }
-    const preview = await request(`/api/admin-report.php?${reportParams("json")}`);
+    const preview = await request(`/api/admin-report?${reportParams("json")}`);
     if (seq !== loadSeq) return;
     unauthorized(preview.res);
     if (!preview.res.ok || preview.body.success === false) throw new Error(messageOf(preview.body, "Could not load the report"));
@@ -1370,13 +1372,13 @@ async function refresh() {
     state.report.rows = preview.body.rows || [];
     state.report.amount = preview.body.amount;
     state.report.loading = false;
-    const board = await request("/api/dashboard.php");
+    const board = await request("/api/dashboard");
     if (seq !== loadSeq) return;
     if (board.res.ok && board.body.stats) state.pending = Number(board.body.stats.pendingPayments || 0);
     return;
   }
   if (state.view === "settings") {
-    const { res, body } = await request("/api/admin-settings.php");
+    const { res, body } = await request("/api/admin-settings");
     if (seq !== loadSeq) return;
     unauthorized(res);
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load settings"));
@@ -1390,11 +1392,11 @@ async function refresh() {
     };
     return;
   }
-  const { res, body } = await request("/api/admin-lotteries.php");
+  const { res, body } = await request("/api/admin-lotteries");
   if (seq !== loadSeq) return;
   if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load lotteries"));
   state.draws.rows = body.data || [];
-  const board = await request("/api/dashboard.php");
+  const board = await request("/api/dashboard");
   if (seq !== loadSeq) return;
   if (board.res.ok && board.body.stats) state.pending = Number(board.body.stats.pendingPayments || 0);
 }
@@ -1522,7 +1524,7 @@ async function onClick(event) {
       return;
     }
     if (act === "logout") {
-      await request("/api/admin-logout.php", { method: "POST" });
+      await request("/api/admin-logout", { method: "POST" });
       state.admin = null;
       closeModal();
       state.notice = "";
@@ -1562,7 +1564,7 @@ async function onClick(event) {
       const started = performance.now();
       state.report.progress = { format, label: `Preparing the ${name}…`, percent: null };
       render();
-      const res = await fetch(`/api/admin-report.php?${params}`, { credentials: "same-origin" });
+      const res = await fetch(`/api/admin-report?${params}`, { credentials: "same-origin" });
       if (res.status === 401) unauthorized(res);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1661,7 +1663,7 @@ async function onClick(event) {
     }
     if (act === "winner") {
       const draw = state.draws.rows.find((row) => String(row.id) === String(id));
-      const { res, body } = await request(`/api/lottery-orders.php?lottery_id=${encodeURIComponent(id)}`);
+      const { res, body } = await request(`/api/lottery-orders?lottery_id=${encodeURIComponent(id)}`);
       unauthorized(res);
       if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load tickets"));
       state.modal = {
@@ -1747,7 +1749,7 @@ async function onClick(event) {
         format: el.dataset.format || "csv",
         search: state.customers.search,
       });
-      const res = await fetch(`/api/admin-customers.php?${params}`, { credentials: "same-origin" });
+      const res = await fetch(`/api/admin-customers?${params}`, { credentials: "same-origin" });
       unauthorized(res);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1772,7 +1774,7 @@ async function onClick(event) {
       state.modal = { kind: "customer", loading: true, customer: known || null, orders: [] };
       state.error = "";
       render();
-      const { res, body } = await request(`/api/admin-customer.php?id=${encodeURIComponent(id)}`);
+      const { res, body } = await request(`/api/admin-customer?id=${encodeURIComponent(id)}`);
       unauthorized(res);
       if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load this customer"));
       if (state.modal?.kind !== "customer") return;
@@ -1922,7 +1924,7 @@ function onChange(event) {
 async function submitLogin(form) {
   state.error = "";
   const data = Object.fromEntries(new FormData(form));
-  const { res, body } = await request("/api/admin-login.php", {
+  const { res, body } = await request("/api/admin-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: data.username, password: data.password }),
@@ -1963,7 +1965,7 @@ async function submitDraw(form) {
       if (photo.file) {
         const body = new FormData();
         body.append("image", photo.file);
-        const uploaded = await request("/api/upload-lottery-image.php", { method: "POST", body });
+        const uploaded = await request("/api/upload-lottery-image", { method: "POST", body });
         unauthorized(uploaded.res);
         if (!uploaded.res.ok || uploaded.body.success === false) {
           throw new Error(messageOf(uploaded.body, "Image upload failed"));
@@ -1977,7 +1979,7 @@ async function submitDraw(form) {
       payload.id = state.modal.row.id;
       payload.status = data.status;
     }
-    const path = state.modal.row?.id ? "/api/admin-update-lottery.php" : "/api/admin-create-lottery.php";
+    const path = state.modal.row?.id ? "/api/admin-update-lottery" : "/api/admin-create-lottery";
     await postOk(path, payload);
     closeModal();
     state.notice = "Lottery saved";
@@ -2005,9 +2007,9 @@ async function submitBank(form) {
     };
     if (state.modal.row) {
       payload.id = state.modal.row.id;
-      await postOk("/api/admin-update-bank-account.php", payload);
+      await postOk("/api/admin-update-bank-account", payload);
     } else {
-      await postOk("/api/admin-create-bank-account.php", payload);
+      await postOk("/api/admin-create-bank-account", payload);
     }
     state.modal = null;
     state.notice = "Bank account saved";
@@ -2026,29 +2028,29 @@ async function submitConfirm() {
   const modal = state.modal;
   try {
     if (modal.act === "hide-draw") {
-      await postOk("/api/admin-hide-lottery.php", { id: modal.id, hidden: modal.hidden });
+      await postOk("/api/admin-hide-lottery", { id: modal.id, hidden: modal.hidden });
       state.notice = modal.hidden === "1" ? "Lottery hidden from customers" : "Lottery visible to customers";
     } else if (modal.act === "feature") {
-      await postOk("/api/admin-feature-lottery.php", { id: modal.id });
+      await postOk("/api/admin-feature-lottery", { id: modal.id });
       state.notice = "Featured lottery updated";
     } else if (modal.act === "delete-draw") {
-      await postOk("/api/admin-delete-lottery.php", { id: modal.id });
+      await postOk("/api/admin-delete-lottery", { id: modal.id });
       state.notice = "Lottery deleted";
     } else if (modal.act === "announce") {
-      await postOk("/api/announce-winner.php", {
+      await postOk("/api/announce-winner", {
         lottery_id: modal.lotteryId,
         order_id: modal.orderId,
         winning_ticket_number: modal.ticket,
       });
       state.notice = "Winner announced";
     } else if (modal.act === "bank-status") {
-      await postOk("/api/admin-update-bank-account.php", modal.payload);
+      await postOk("/api/admin-update-bank-account", modal.payload);
       state.notice = "Bank account updated";
     } else if (modal.act === "approve") {
-      await postOk("/api/approve-payment.php", { payment_id: modal.id });
+      await postOk("/api/approve-payment", { payment_id: modal.id });
       state.notice = "Payment approved";
     } else if (modal.act === "reject") {
-      await postOk("/api/reject-payment.php", { payment_id: modal.id });
+      await postOk("/api/reject-payment", { payment_id: modal.id });
       state.notice = "Payment rejected";
     }
     state.modal = null;
@@ -2070,7 +2072,7 @@ async function submitPassword(form) {
   const button = form.querySelector("[type=submit]");
   button.disabled = true;
   try {
-    await postOk("/api/admin-password.php", {
+    await postOk("/api/admin-password", {
       current_password: data.current_password,
       new_password: data.new_password,
     });
@@ -2091,7 +2093,7 @@ async function submitSettings(form) {
   const button = form.querySelector("[type=submit]");
   button.disabled = true;
   try {
-    const { res, body } = await request("/api/admin-settings.php", {
+    const { res, body } = await request("/api/admin-settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2169,7 +2171,7 @@ async function followHash() {
 
 async function boot() {
   state.view = viewFromHash();
-  const { res, body } = await request("/api/admin-session.php");
+  const { res, body } = await request("/api/admin-session");
   if (res.ok && body.success) {
     state.admin = body.admin;
     try {

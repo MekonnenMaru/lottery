@@ -131,6 +131,18 @@ input:focus, select:focus {
 
 .primary svg { width: 16px; height: 16px; }
 
+.danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: color-mix(in srgb, var(--bad) 18%, transparent);
+  color: var(--bad);
+  border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent);
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-weight: 700;
+}
+
 .login .primary { width: 100%; margin-top: 16px; }
 
 .ghost, .pager button {

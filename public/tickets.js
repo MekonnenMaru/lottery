@@ -385,7 +385,7 @@ async function load() {
   loading = true;
   show("loading");
   try {
-    const response = await fetch("/api/my-tickets.php", { credentials: "same-origin" });
+    const response = await fetch("/api/my-tickets", { credentials: "same-origin" });
     const body = await response.json();
     signedIn = Boolean(body.signedIn);
     tickets = Array.isArray(body.data) ? body.data : [];

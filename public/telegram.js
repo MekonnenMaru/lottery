@@ -189,7 +189,7 @@ function storeUser(user) {
 
 async function refresh() {
   try {
-    const body = await read("/api/telegram.php");
+    const body = await read("/api/telegram");
     const before = localStorage.getItem("buyer_phone") || localStorage.getItem("maraki_phone") || "";
     const next = body.user?.phone || "";
     clientId = body.clientId || "";
@@ -240,7 +240,7 @@ async function signIn() {
     return;
   }
   view(null, "", true);
-  const started = await read("/api/telegram-oidc.php", {
+  const started = await read("/api/telegram-oidc", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -251,7 +251,7 @@ async function signIn() {
     view(null, result?.error === "popup_closed" ? "closed" : (result?.error || "Could not use Telegram"));
     return;
   }
-  const body = await read("/api/telegram-oidc.php", {
+  const body = await read("/api/telegram-oidc", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id_token: result.id_token }),
@@ -261,7 +261,7 @@ async function signIn() {
 }
 
 async function signOut() {
-  await fetch("/api/telegram-logout.php", {
+  await fetch("/api/telegram-logout", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
@@ -292,14 +292,14 @@ async function openFromBot() {
   if (!initData) return;
   app.ready?.();
   app.expand?.();
-  const session = await read("/api/telegram.php").catch(() => null);
+  const session = await read("/api/telegram").catch(() => null);
   if (session?.user) {
     storeUser(session.user);
     return;
   }
   // Bingo Mini App: verify Telegram initData and reuse bingo phone (lottery-side only).
   try {
-    const done = await read("/api/telegram-webapp.php", {
+    const done = await read("/api/telegram-webapp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ initData }),

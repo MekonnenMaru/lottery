@@ -12,7 +12,7 @@
   function sync() {
     try {
       const xhr = new XMLHttpRequest();
-      xhr.open("GET", "/api/time.php", false);
+      xhr.open("GET", "/api/time", false);
       xhr.send();
       if (xhr.status === 200) applySkew(JSON.parse(xhr.responseText).now);
     } catch {
