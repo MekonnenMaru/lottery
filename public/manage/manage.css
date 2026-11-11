@@ -84,7 +84,38 @@ h1, h2, p { margin: 0; }
   padding: 24px;
 }
 
+.modal-card {
+  position: relative;
+  padding-top: 28px;
+}
+
+.modal-card > h2 { padding-right: 36px; }
+
 .modal-card.wide { width: min(920px, 100%); }
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.modal-close:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--text) 35%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.modal-close svg { width: 16px; height: 16px; }
 
 .eyebrow {
   margin-bottom: 4px;
@@ -855,7 +886,14 @@ dl div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; }
 dt { color: var(--muted); }
 dd { margin: 0; }
 
-.receipt { width: 100%; border-radius: 12px; margin-top: 8px; }
+.receipt {
+  width: 100%;
+  max-height: min(70vh, 720px);
+  object-fit: contain;
+  border-radius: 12px;
+  margin-top: 8px;
+  background: #000;
+}
 [hidden] { display: none !important; }
 
 @media (max-width: 1099px) {

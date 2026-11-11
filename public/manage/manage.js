@@ -123,13 +123,20 @@ function esc(value) {
   }[ch]));
 }
 
+function appBase() {
+  const match = location.pathname.match(/^(.*)\/manage(?:\/|$)/);
+  return match ? match[1] : "";
+}
+
 function safeSrc(url) {
   const value = String(url || "");
-  if (
-    value.startsWith("uploads/")
-    || value.startsWith("/api/receipt-files/")
-    || value.startsWith("https://images.pexels.com/")
-  ) return value;
+  if (value.startsWith("https://images.pexels.com/")) return value;
+  const base = appBase();
+  // Split "/api" so embed path rewriting does not break this check.
+  const receipt = "/" + "api/receipt-files/";
+  if (value.startsWith("uploads/")) return `${base}/${value}`;
+  if (value.startsWith(receipt)) return `${base}${value}`;
+  if (base && value.startsWith(`${base}${receipt}`)) return value;
   return "";
 }
 
@@ -869,17 +876,22 @@ function customersView() {
     ${pagerHtml(info, "page")}`;
 }
 
+function modalClose() {
+  return `<button type="button" class="modal-close" data-act="close-modal" aria-label="Close" title="Close">${svg(glyph.x)}</button>`;
+}
+
 function customerModal() {
   const row = state.modal.customer;
   const orders = state.modal.orders || [];
   if (state.modal.loading || !row) {
-    return `<div class="modal-card"><h2>Customer</h2><p class="muted">Loading history…</p></div>`;
+    return `<div class="modal-card">${modalClose()}<h2>Customer</h2><p class="muted">Loading history…</p></div>`;
   }
   const history = orders.length
     ? `<div class="table-wrap"><table aria-label="Customer orders"><thead><tr><th scope="col">When</th><th scope="col">Lottery</th><th scope="col">Tickets</th><th scope="col">Amount</th><th scope="col">Status</th></tr></thead><tbody>${orders.map((order) => `<tr><td>${esc(when(order.created_at))}</td><td>${esc(order.title)}</td><td>${esc(order.tickets || "—")}</td><td>${esc(money(order.amount))}</td><td>${badge(order.status)}</td></tr>`).join("")}</tbody></table></div>`
     : `<p class="muted">No orders yet.</p>`;
   return `
     <div class="modal-card wide">
+      ${modalClose()}
       <h2>${esc(row.name)}</h2>
       <dl>
         <div><dt>Phone</dt><dd>${esc(row.phone)}</dd></div>
@@ -890,7 +902,6 @@ function customerModal() {
         <div><dt>Approved</dt><dd>${esc(money(row.approved))}</dd></div>
       </dl>
       ${history}
-      <div class="modal-actions"><button type="button" class="ghost" data-act="close-modal">Close</button></div>
     </div>`;
 }
 
@@ -1095,6 +1106,7 @@ function drawForm() {
   const price = row?.ticket_price ? Math.round(Number(row.ticket_price)) : "";
   return `
     <form id="draw-form" class="modal-card">
+      ${modalClose()}
       <h2>${editing ? "Edit lottery" : "New lottery"}</h2>
       <label>Title <input name="title" required maxlength="160" value="${esc(row?.title || "")}"></label>
       <label>Subtitle <input name="subtitle" maxlength="160" value="${esc(row?.subtitle || "")}"></label>
@@ -1118,7 +1130,6 @@ function drawForm() {
       ${drawPhotos()}
       <p id="modal-error" class="alert" ${state.modal.warning ? "" : "hidden"}>${esc(state.modal.warning || "")}</p>
       <div class="modal-actions">
-        <button type="button" class="ghost" data-act="close-modal">Cancel</button>
         <button class="primary" type="submit">Save</button>
       </div>
     </form>`;
@@ -1128,6 +1139,7 @@ function bankForm() {
   const row = state.modal.row;
   return `
     <form id="bank-form" class="modal-card">
+      ${modalClose()}
       <h2>${row ? "Edit account" : "New account"}</h2>
       <label>Bank <input name="bank_name" required maxlength="80" value="${esc(row?.bank_name || "")}"></label>
       <label>Account name <input name="account_name" required maxlength="80" value="${esc(row?.account_name || "")}"></label>
@@ -1135,7 +1147,6 @@ function bankForm() {
       ${row ? `<label>Status <select name="status"><option value="active" ${row.status !== "inactive" ? "selected" : ""}>Active</option><option value="inactive" ${row.status === "inactive" ? "selected" : ""}>Inactive</option></select></label>` : ""}
       <p id="modal-error" class="alert" hidden></p>
       <div class="modal-actions">
-        <button type="button" class="ghost" data-act="close-modal">Cancel</button>
         <button class="primary" type="submit">Save</button>
       </div>
     </form>`;
@@ -1147,6 +1158,7 @@ function ticketsModal() {
   const info = pageSlice(filtered, modal);
   return `
     <div class="modal-card wide">
+      ${modalClose()}
       <h2>Choose a winner · ${esc(modal.lotteryTitle)}</h2>
       <label>Filter <input id="modal-filter" type="search" value="${esc(modal.search)}" placeholder="Name, phone, or ticket" aria-label="Filter tickets"></label>
       ${tableHtml({
@@ -1163,7 +1175,6 @@ function ticketsModal() {
         ]),
       })}
       ${pagerHtml(info, "modal-page")}
-      <div class="modal-actions"><button type="button" class="ghost" data-act="close-modal">Close</button></div>
     </div>`;
 }
 
@@ -1171,11 +1182,11 @@ function confirmModal() {
   const modal = state.modal;
   return `
     <form id="confirm-form" class="modal-card">
+      ${modalClose()}
       <h2>${esc(modal.title)}</h2>
       <p>${esc(modal.message)}</p>
       <p id="modal-error" class="alert" hidden></p>
       <div class="modal-actions">
-        <button type="button" class="ghost" data-act="close-modal">Cancel</button>
         <button class="primary" type="submit">Confirm</button>
       </div>
     </form>`;
@@ -1186,7 +1197,8 @@ function paymentModal() {
   const src = safeSrc(row.screenshot_url);
   const pending = row.status === "pending";
   return `
-    <div class="modal-card">
+    <div class="modal-card wide">
+      ${modalClose()}
       <h2>Payment</h2>
       <dl>
         <div><dt>Buyer</dt><dd>${esc(row.customer_name)}</dd></div>
@@ -1200,11 +1212,10 @@ function paymentModal() {
         <div><dt>Date</dt><dd>${esc(when(row.created_at))}</dd></div>
       </dl>
       ${src ? `<img class="receipt" alt="Payment receipt" src="${esc(src)}">` : `<p class="muted">No receipt was uploaded.</p>`}
-      <div class="modal-actions">
-        <button type="button" class="ghost" data-act="close-modal">Close</button>
-        ${pending ? `<button type="button" class="danger" data-act="reject" data-id="${esc(row.id)}">Reject</button>` : ""}
-        ${pending ? `<button type="button" class="primary" data-act="approve" data-id="${esc(row.id)}">Approve</button>` : ""}
-      </div>
+      ${pending ? `<div class="modal-actions">
+        <button type="button" class="danger" data-act="reject" data-id="${esc(row.id)}">Reject</button>
+        <button type="button" class="primary" data-act="approve" data-id="${esc(row.id)}">Approve</button>
+      </div>` : ""}
     </div>`;
 }
 
@@ -1215,6 +1226,7 @@ function photoModal() {
   const title = state.modal.title || "Image";
   return `
     <div class="modal-card photo">
+      ${modalClose()}
       <h2>${esc(title)}</h2>
       ${src ? `<img class="photo-view" alt="${esc(title)}" src="${esc(src)}">` : ""}
       ${images.length > 1 ? `
@@ -1223,20 +1235,19 @@ function photoModal() {
           <span>${index + 1} / ${images.length}</span>
           <button type="button" class="icon-btn" data-act="photo-step" data-dir="1" aria-label="Next image" title="Next image">${svg(glyph.chevR)}</button>
         </div>` : ""}
-      <div class="modal-actions"><button type="button" class="ghost" data-act="close-modal">Close</button></div>
     </div>`;
 }
 
 function passwordForm() {
   return `
     <form id="password-form" class="modal-card">
+      ${modalClose()}
       <h2>Change password</h2>
       <label>Current password <input name="current_password" type="password" autocomplete="current-password" required></label>
       <label>New password <input name="new_password" type="password" autocomplete="new-password" minlength="4" maxlength="72" required></label>
       <label>Confirm new password <input name="confirm_password" type="password" autocomplete="new-password" minlength="4" maxlength="72" required></label>
       <p id="modal-error" class="alert" hidden></p>
       <div class="modal-actions">
-        <button type="button" class="ghost" data-act="close-modal">Cancel</button>
         <button class="primary" type="submit">Save password</button>
       </div>
     </form>`;
@@ -1246,6 +1257,7 @@ function winnerModal() {
   const row = state.modal.row;
   return `
     <div class="modal-card">
+      ${modalClose()}
       <h2>${esc(row.lottery_title)}</h2>
       <dl>
         <div><dt>Ticket</dt><dd>${esc(row.winning_ticket_number)}</dd></div>
@@ -1254,7 +1266,6 @@ function winnerModal() {
         <div><dt>Prize</dt><dd>${esc(row.lottery_prize || row.prize_description || "—")}</dd></div>
         <div><dt>Announced</dt><dd>${esc(when(row.announced_at))}</dd></div>
       </dl>
-      <div class="modal-actions"><button type="button" class="ghost" data-act="close-modal">Close</button></div>
     </div>`;
 }
 
