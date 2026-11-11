@@ -218,6 +218,11 @@ function loadSdk() {
 
 function askTelegram({ clientId: id, nonce }) {
   return new Promise((resolve) => {
+    // Telegram SDK sets redirect_uri = origin + pathname.
+    // Prefer a stable trailing-slash path so BotFather Allowed URL can match one value.
+    if (!location.pathname.endsWith("/")) {
+      history.replaceState(null, "", `${location.pathname}/${location.search}${location.hash}`);
+    }
     window.Telegram.Login.auth({
       client_id: /^\d+$/.test(String(id)) ? Number(id) : id,
       scope: ["profile", "phone"],
@@ -288,12 +293,25 @@ async function openFromBot() {
   app.ready?.();
   app.expand?.();
   const session = await read("/api/telegram.php").catch(() => null);
-  if (session?.user) return;
-  await read("/api/telegram-webapp.php", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ initData }),
-  });
+  if (session?.user) {
+    storeUser(session.user);
+    return;
+  }
+  // Bingo Mini App: verify Telegram initData and reuse bingo phone (lottery-side only).
+  try {
+    const done = await read("/api/telegram-webapp.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData }),
+    });
+    if (done?.user) {
+      storeUser(done.user);
+      location.reload();
+      return;
+    }
+  } catch (err) {
+    console.warn("[lottery] auto-login from bot failed:", err?.message || err);
+  }
 }
 
 document.addEventListener("change", (event) => {

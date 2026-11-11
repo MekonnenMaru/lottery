@@ -44,6 +44,10 @@ export function buyerScript() {
 
 export function publishBuyerBundle() {
   const body = buyerScript();
+  // When embedded under bingo + nodemon, writing maraki.js triggers endless restarts.
+  // The /assets/maraki.js route already serves buyerScript() from memory.
+  const embed = String(process.env.LOTTERY_EMBED || "").trim().toLowerCase();
+  if (embed === "1" || embed === "yes") return body;
   fs.writeFileSync(OUTPUT_BUNDLE, body);
   return body;
 }

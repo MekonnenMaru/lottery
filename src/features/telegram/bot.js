@@ -2,12 +2,16 @@ import { get, run } from "../../db.js";
 import { normalizePhone } from "../../util.js";
 
 function appUrl() {
-  const value = String(process.env.APP_URL || "").trim().replace(/\/+$/, "");
+  const value = String(
+    process.env.LOTTERY_APP_URL || process.env.APP_URL || "",
+  ).trim().replace(/\/+$/, "");
   return /^https:\/\/[^\s/]+(?:\/[^\s]*)?$/.test(value) ? `${value}/` : "";
 }
 
 function token() {
-  const value = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  const value = String(
+    process.env.LOTTERY_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "",
+  ).trim();
   return /^\d{5,16}:[A-Za-z0-9_-]{20,}$/.test(value) ? value : "";
 }
 

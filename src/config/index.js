@@ -1,6 +1,7 @@
 export { loadEnv, env } from "./env.js";
 export { databaseConfig } from "./database.js";
 export { securityConfig, cookieOptions, clearCookieOptions } from "./security.js";
+export { LOTTERY_BASE_PATH, lotteryEnabled, lotteryTelegramEnabled, rewritePublicPaths } from "./embed.js";
 export {
   APP_TIMEZONE,
   APP_OFFSET,

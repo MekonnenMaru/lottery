@@ -4,6 +4,8 @@ import cookieParser from "cookie-parser";
 import express from "express";
 import helmet from "helmet";
 import { publicDir, receiptDir, lotteryImageDir } from "./config/paths.js";
+import { LOTTERY_BASE_PATH, rewritePublicPaths } from "./config/embed.js";
+import { env } from "./config/env.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import authRoutes from "./features/auth/routes.js";
 import customerRoutes from "./features/customers/routes.js";
@@ -11,22 +13,39 @@ import storefrontRoutes from "./features/storefront/routes.js";
 import { buyerScript, publishBuyerBundle } from "./features/storefront/buyer-bundle.js";
 import { branding } from "./features/settings/service.js";
 
-function htmlPage(file) {
+function htmlPage(file, basePath) {
   const brand = branding();
-  return fs.readFileSync(path.join(publicDir, file), "utf8")
+  const raw = fs.readFileSync(path.join(publicDir, file), "utf8")
     .replaceAll("__APP_NAME__", brand.app_name)
     .replaceAll("__DEVELOPER_NAME__", brand.developer_name)
     .replaceAll("__DEVELOPER_URL__", brand.developer_url)
     .replaceAll("__CREDIT_PREFIX__", brand.credit_prefix);
+  return rewritePublicPaths(raw, basePath);
 }
 
-export function createApp() {
+function sendRewrittenJs(fileName) {
+  return (req, res) => {
+    const basePath = req.app.get("lotteryBasePath") || LOTTERY_BASE_PATH;
+    const raw = fs.readFileSync(path.join(publicDir, fileName), "utf8");
+    res.type("js").set("Cache-Control", "no-store").send(rewritePublicPaths(raw, basePath));
+  };
+}
+
+/**
+ * @param {{ basePath?: string, trustProxy?: boolean|number }} [options]
+ */
+export function createApp(options = {}) {
+  const basePath = String(options.basePath || LOTTERY_BASE_PATH || "").replace(/\/+$/, "") || "";
+  const embed = Boolean(env().isEmbed || options.embed);
+
   fs.mkdirSync(receiptDir, { recursive: true });
   fs.mkdirSync(lotteryImageDir, { recursive: true });
 
   const app = express();
   app.disable("x-powered-by");
-  app.set("trust proxy", false);
+  app.set("trust proxy", options.trustProxy ?? (embed ? 1 : false));
+  app.set("lotteryBasePath", basePath);
+
   app.use(helmet({
     contentSecurityPolicy: {
       directives: {
@@ -68,7 +87,7 @@ export function createApp() {
 
   const api = express.Router();
   api.get("/health", (req, res) => {
-    res.json({ ok: true });
+    res.json({ ok: true, product: "lottery", basePath: basePath || "/" });
   });
   api.use(authRoutes);
   api.use(customerRoutes);
@@ -76,33 +95,44 @@ export function createApp() {
   app.use("/api", api);
 
   app.get("/assets/maraki.js", (req, res) => {
-    res.type("js").set("Cache-Control", "no-store").send(buyerScript());
+    const script = rewritePublicPaths(buyerScript(), basePath);
+    res.type("js").set("Cache-Control", "no-store").send(script);
   });
-  app.get("/time.js", (req, res) => {
-    res.type("js").set("Cache-Control", "no-store").sendFile(path.join(publicDir, "time.js"));
-  });
-  app.get("/telegram.js", (req, res) => {
-    res.type("js").set("Cache-Control", "no-store").sendFile(path.join(publicDir, "telegram.js"));
-  });
-  app.get("/tickets.js", (req, res) => {
-    res.type("js").set("Cache-Control", "no-store").sendFile(path.join(publicDir, "tickets.js"));
-  });
+  app.get("/time.js", sendRewrittenJs("time.js"));
+  app.get("/telegram.js", sendRewrittenJs("telegram.js"));
+  app.get("/tickets.js", sendRewrittenJs("tickets.js"));
+
+  const manageTarget = basePath ? `${basePath}/manage` : "/manage";
+
   app.get("/", (req, res) => {
-    res.type("html").set("Cache-Control", "no-store").send(htmlPage("index.html"));
+    res.type("html").set("Cache-Control", "no-store").send(htmlPage("index.html", basePath));
   });
   app.get(["/manage", "/manage/"], (req, res) => {
-    res.type("html").set("Cache-Control", "no-store").send(htmlPage(path.join("manage", "index.html")));
+    res.type("html").set("Cache-Control", "no-store").send(htmlPage(path.join("manage", "index.html"), basePath));
   });
   app.get("/manage/index.html", (req, res) => {
-    res.redirect(302, "/manage");
+    res.redirect(302, manageTarget);
   });
   app.get(["/admin", "/payment-status"], (req, res) => {
-    res.redirect(302, "/manage");
+    res.redirect(302, manageTarget);
   });
   app.use("/manage", (req, res, next) => {
     res.set("Cache-Control", "no-store");
     next();
   });
+
+  // Rewrite root-absolute /api and asset paths inside JS/CSS when embedded under /lottery.
+  app.use((req, res, next) => {
+    if (!basePath) return next();
+    if (!/\.(js|css)$/i.test(req.path)) return next();
+    const file = path.normalize(path.join(publicDir, req.path));
+    if (!file.startsWith(path.normalize(publicDir)) || !fs.existsSync(file)) return next();
+    let body = fs.readFileSync(file, "utf8");
+    if (req.path.endsWith(".js")) body = rewritePublicPaths(body, basePath);
+    if (req.path.endsWith(".css")) body = body.replace(/url\(\//g, `url(${basePath}/`);
+    res.type(req.path.endsWith(".css") ? "css" : "js").set("Cache-Control", "no-store").send(body);
+  });
+
   app.use(express.static(publicDir, { index: false, dotfiles: "deny" }));
   app.use("/api", (req, res) => {
     res.status(404).json({ error: "Not found" });

@@ -3,14 +3,23 @@ import { get, run } from "../../db.js";
 import { securityConfig } from "../../config/security.js";
 import { createSession } from "../auth/session.js";
 import { httpError, normalizePhone } from "../../util.js";
+import { findBingoPlayerByTelegram } from "./bingoPlayer.js";
 import { verifyTelegramToken } from "./verify.js";
 
 const LOGIN_MS = 10 * 60 * 1000;
 
+function firstEnv(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 export function telegramClientId() {
-  const explicit = String(process.env.TELEGRAM_CLIENT_ID || "").trim();
+  const explicit = firstEnv(process.env.LOTTERY_TELEGRAM_CLIENT_ID, process.env.TELEGRAM_CLIENT_ID);
   if (/^\d{5,16}$/.test(explicit)) return explicit;
-  const id = String(process.env.TELEGRAM_BOT_TOKEN || "").split(":")[0];
+  const id = botToken().split(":")[0];
   return /^\d{5,16}$/.test(id) ? id : "";
 }
 
@@ -117,19 +126,41 @@ export async function completeTelegramOidc(idToken) {
   return { customer, session };
 }
 
-function botToken() {
-  const value = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+function normalizeBotToken(raw) {
+  const value = String(raw || "").trim().split(/\s+/)[0] || "";
   return /^\d{5,16}:[A-Za-z0-9_-]{20,}$/.test(value) ? value : "";
 }
 
+/** Tokens that may have signed Mini App initData (bingo button vs lottery bot). */
+function webAppTokenCandidates() {
+  // Prefer bingo TELEGRAM_TOKEN first: play keyboard opens lottery from the bingo bot.
+  const list = [
+    process.env.TELEGRAM_TOKEN,
+    process.env.LOTTERY_TELEGRAM_BOT_TOKEN,
+    process.env.TELEGRAM_BOT_TOKEN,
+  ];
+  const out = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const token = normalizeBotToken(raw);
+    if (!token || seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+  }
+  return out;
+}
+
+function botToken() {
+  return webAppTokenCandidates()[0] || "";
+}
+
 export function readWebAppUser(initData) {
-  const secret = botToken();
-  if (!secret) throw httpError(400, "Add the bot token in .env, then restart the app.");
-  const text = String(initData || "");
-  if (text.length < 20 || text.length > 4096) throw httpError(400, "Open Equb again from the bot.");
-  const params = new URLSearchParams(text);
+  return readWebAppPayload(initData).telegramId;
+}
+
+function verifyInitDataHash(params, secret) {
   const hash = String(params.get("hash") || "");
-  if (!/^[a-f0-9]{64}$/.test(hash)) throw httpError(400, "Open Equb again from the bot.");
+  if (!/^[a-f0-9]{64}$/.test(hash)) return false;
   const lines = [];
   for (const [key, value] of params.entries()) {
     if (key !== "hash") lines.push(`${key}=${value}`);
@@ -139,32 +170,68 @@ export function readWebAppUser(initData) {
   const calculated = crypto.createHmac("sha256", secretKey).update(lines.join("\n")).digest("hex");
   const left = Buffer.from(calculated, "hex");
   const right = Buffer.from(hash, "hex");
-  if (left.length !== right.length || !crypto.timingSafeEqual(left, right)) {
-    throw httpError(400, "Open Equb again from the bot.");
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function readWebAppPayload(initData) {
+  const tokens = webAppTokenCandidates();
+  if (!tokens.length) throw httpError(400, "Add the bot token in .env, then restart the app.");
+  const text = String(initData || "");
+  if (text.length < 20 || text.length > 4096) throw httpError(400, "Open Lottery again from the bingo bot.");
+  const params = new URLSearchParams(text);
+  if (!tokens.some((secret) => verifyInitDataHash(params, secret))) {
+    throw httpError(400, "Open Lottery again from the bingo bot.");
   }
   const authDate = Number(params.get("auth_date"));
   const now = Math.floor(Date.now() / 1000);
   if (!Number.isFinite(authDate) || authDate > now + 300 || now - authDate > 60 * 60) {
-    throw httpError(400, "Open Equb again from the bot.");
+    throw httpError(400, "Open Lottery again from the bingo bot.");
   }
   let user;
   try {
     user = JSON.parse(params.get("user") || "");
   } catch {
-    throw httpError(400, "Open Equb again from the bot.");
+    throw httpError(400, "Open Lottery again from the bingo bot.");
   }
   const telegramId = String(user?.id ?? "");
-  if (!/^\d{1,19}$/.test(telegramId)) throw httpError(400, "Open Equb again from the bot.");
-  return telegramId;
+  if (!/^\d{1,19}$/.test(telegramId)) throw httpError(400, "Open Lottery again from the bingo bot.");
+  return {
+    telegramId,
+    firstName: String(user?.first_name || ""),
+    lastName: String(user?.last_name || ""),
+    username: String(user?.username || ""),
+  };
 }
 
 export async function completeTelegramWebApp(initData) {
-  const telegramId = readWebAppUser(initData);
-  const customer = await get(
+  const payload = readWebAppPayload(initData);
+  const { telegramId } = payload;
+
+  let customer = await get(
     "SELECT id, name, username, phone FROM customers WHERE telegram_id = ?",
     [telegramId],
   );
-  if (!customer?.phone) throw httpError(400, "Share your phone number with the bot first.");
+
+  // Lottery-only bridge: reuse bingo registration (telegram id + phone). No bingo writes.
+  if (!customer?.phone) {
+    const player = await findBingoPlayerByTelegram(telegramId);
+    if (player?.phone_number) {
+      customer = await saveCustomer({
+        telegramId,
+        name: customerName(
+          player.first_name || payload.firstName,
+          player.last_name || payload.lastName,
+        ),
+        username: player.telegram_username || payload.username,
+        phone: player.phone_number,
+      });
+    }
+  }
+
+  if (!customer?.phone) {
+    throw httpError(400, "Register in Bingo with your phone first, then open Lottery again.");
+  }
+
   const session = await createSession("buyer", String(customer.id), securityConfig().buyerSessionTtlMs);
   return { customer, session };
 }

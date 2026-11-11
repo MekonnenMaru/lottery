@@ -144,6 +144,10 @@ export async function closeDatabase() {
   await closing.end();
 }
 
+/**
+ * Backfill lottery_images from the legacy single lotteries.image_path column.
+ * Safe to re-run: skips lotteries that already have rows in lottery_images.
+ */
 export async function syncLotteryImages() {
   await requirePool().query(`
     INSERT INTO lottery_images (lottery_id, image_path, sort_order)
