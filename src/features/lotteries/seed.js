@@ -152,7 +152,26 @@ async function sellTickets(tx, draw, lotteryId, bankId) {
   }
 }
 
+function seedDemoEnabled() {
+  const raw = String(process.env.LOTTERY_SEED_DEMO || "").trim().toLowerCase();
+  return raw === "1" || raw === "yes" || raw === "true";
+}
+
+/** Wipe lotteries + related tickets/orders so deploy can start empty. */
+export async function clearCatalog() {
+  await withTransaction(async (tx) => {
+    await tx.run("UPDATE lotteries SET winner_ticket_id = NULL");
+    await tx.run("DELETE FROM tickets");
+    await tx.run("DELETE FROM orders");
+    await tx.run("DELETE FROM lottery_images");
+    await tx.run("DELETE FROM lotteries");
+  });
+}
+
+/** Demo catalog for local testing only. Off by default so deploy starts empty. */
 export async function seedCatalog() {
+  if (!seedDemoEnabled()) return;
+
   const name = appName();
   await run(
     "UPDATE bank_accounts SET account_name = ? WHERE account_number IN ('1000123456789', '0911001100')",

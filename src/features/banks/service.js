@@ -1,7 +1,14 @@
 import { all, countOf, flag, get, run } from "../../db.js";
 import { httpError, requiredText } from "../../util.js";
 
+function seedDemoEnabled() {
+  const raw = String(process.env.LOTTERY_SEED_DEMO || "").trim().toLowerCase();
+  return raw === "1" || raw === "yes" || raw === "true";
+}
+
+/** Sample bank for local testing only. Off by default so deploy starts empty. */
 export async function seedBanks() {
+  if (!seedDemoEnabled()) return;
   const banks = countOf(await get("SELECT COUNT(*) AS count FROM bank_accounts"));
   if (banks > 0) return;
   await run(`
