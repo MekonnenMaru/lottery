@@ -57,18 +57,19 @@ export function adminPublic(admin) {
 
 export async function ensureAdmin() {
   const { adminUsername: username, adminPassword: password, bcryptRounds } = securityConfig();
-  const passwordHash = bcrypt.hashSync(password, bcryptRounds);
   const existing = await get("SELECT id, password_hash, name FROM admins WHERE username = ?", [username]);
   if (!existing) {
+    const passwordHash = bcrypt.hashSync(password, bcryptRounds);
     await run(
       "INSERT INTO admins (username, password_hash, name, phone, role, privileges, active) VALUES (?, ?, ?, NULL, 'super', NULL, 1)",
       [username, passwordHash, "Super Admin"],
     );
   } else {
-    // Keep env super-admin password in sync with LOTTERY_ADMIN_PASSWORD.
+    // Keep the env account as active super. Do not reset password on restart —
+    // that would undo Change password / manage updates. Env password is bootstrap-only.
     await run(
-      "UPDATE admins SET role = 'super', active = 1, password_hash = ?, name = COALESCE(NULLIF(name, ''), ?) WHERE id = ?",
-      [passwordHash, "Super Admin", existing.id],
+      "UPDATE admins SET role = 'super', active = 1, name = COALESCE(NULLIF(name, ''), ?) WHERE id = ?",
+      ["Super Admin", existing.id],
     );
   }
   // Only the configured account stays super; other accounts keep full access as regular admins.
