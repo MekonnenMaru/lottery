@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { countOf, withTransaction } from "../../db.js";
+import { countOf, get, withTransaction } from "../../db.js";
 import { receiptDir } from "../../paths.js";
 import { nowMs } from "../../time.js";
 import { httpError, normalizePhone, optionalText, parseTicketNumbers, requiredText } from "../../util.js";
@@ -183,4 +183,50 @@ export async function rejectOrder(orderId, adminId) {
       ocrScannedBy: order.ocr_scanned_by || null,
     });
   });
+}
+
+/** Super-admin hard delete: frees ticket numbers and removes the payment row. */
+export async function deleteOrder(orderId, adminId) {
+  if (!adminId) throw httpError(401, "Staff sign-in required");
+  let receiptName = null;
+  await withTransaction(async (tx) => {
+    const order = await tx.get("SELECT * FROM orders WHERE id = ? FOR UPDATE", [orderId]);
+    if (!order) throw httpError(404, "Payment not found");
+    receiptName = order.receipt_path || null;
+
+    const winnerTickets = await tx.all(
+      "SELECT id FROM tickets WHERE order_id = ?",
+      [orderId],
+    );
+    if (winnerTickets.length) {
+      const ids = winnerTickets.map((row) => Number(row.id));
+      const placeholders = ids.map(() => "?").join(",");
+      await tx.run(
+        `UPDATE lotteries SET winner_ticket_id = NULL WHERE winner_ticket_id IN (${placeholders})`,
+        ids,
+      );
+    }
+    await tx.run("DELETE FROM tickets WHERE order_id = ?", [orderId]);
+    await tx.run("DELETE FROM orders WHERE id = ?", [orderId]);
+    await writeAudit(tx, adminId, "delete_payment", {
+      orderId,
+      lotteryId: order.lottery_id,
+      status: order.status,
+      phone: order.phone || null,
+      customer: order.customer_name || null,
+      amount: order.amount,
+      receipt: order.receipt_path || order.ocr_receipt || null,
+      transactionId: order.transaction_id || null,
+    });
+  });
+
+  if (receiptName && /^[a-f0-9]{32}\.(jpg|png|webp)$/i.test(receiptName)) {
+    const stillUsed = await get("SELECT id FROM orders WHERE receipt_path = ? LIMIT 1", [receiptName]);
+    if (!stillUsed) {
+      const full = path.resolve(receiptDir, receiptName);
+      if (full.startsWith(path.resolve(receiptDir))) {
+        fs.rmSync(full, { force: true });
+      }
+    }
+  }
 }

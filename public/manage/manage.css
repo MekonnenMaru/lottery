@@ -127,6 +127,21 @@ h1, h2, p { margin: 0; }
   background: var(--field);
 }
 
+.login-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 2px;
+  font-size: 0.9rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.login-remember input {
+  width: auto;
+  margin: 0;
+}
+
 .login input:-webkit-autofill,
 .login input:-webkit-autofill:hover,
 .login input:-webkit-autofill:focus {

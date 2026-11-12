@@ -7,6 +7,7 @@ export const ACTION_LABELS = {
   change_password: "Changed password",
   approve_payment: "Approved payment",
   reject_payment: "Rejected payment",
+  delete_payment: "Deleted payment",
   scan_receipt: "Scanned receipt",
   clear_receipt_ocr: "Cleared receipt OCR",
   set_transaction_id: "Set transaction ID",

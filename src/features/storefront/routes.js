@@ -31,7 +31,7 @@ import {
   telegramClientId,
 } from "../telegram/service.js";
 import { logEvent } from "../audit/service.js";
-import { approveOrder, createStoreOrder, rejectOrder } from "../orders/service.js";
+import { approveOrder, createStoreOrder, deleteOrder, rejectOrder } from "../orders/service.js";
 import { getAdminSettings, updateAdminSettings } from "../settings/service.js";
 import { invalidateBuyerBundle, publishBuyerBundle } from "./buyer-bundle.js";
 import {
@@ -279,6 +279,13 @@ router.post("/reject-payment", ...pay, wrap(async (req, res) => {
   const orderId = idOf(req.body?.payment_id);
   if (!orderId) throw httpError(404, "Order not found");
   await rejectOrder(orderId, req.admin.id);
+  res.json({ success: true });
+}));
+
+router.post("/admin-delete-payment", staff, requireSuper, wrap(async (req, res) => {
+  const orderId = idOf(req.body?.payment_id);
+  if (!orderId) throw httpError(404, "Payment not found");
+  await deleteOrder(orderId, req.admin.id);
   res.json({ success: true });
 }));
 

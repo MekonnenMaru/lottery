@@ -361,8 +361,45 @@ function render() {
   restoreFocus(saved);
 }
 
+const LOGIN_SAVE_KEY = "lottery.manage.login";
+
+function readSavedLogin() {
+  try {
+    const raw = localStorage.getItem(LOGIN_SAVE_KEY);
+    if (!raw) return { remember: true, username: "", password: "" };
+    const parsed = JSON.parse(raw);
+    if (parsed?.remember === false) {
+      return { remember: false, username: "", password: "" };
+    }
+    return {
+      remember: true,
+      username: String(parsed?.username || ""),
+      password: String(parsed?.password || ""),
+    };
+  } catch {
+    return { remember: true, username: "", password: "" };
+  }
+}
+
+function writeSavedLogin({ remember, username, password }) {
+  try {
+    if (!remember) {
+      localStorage.setItem(LOGIN_SAVE_KEY, JSON.stringify({ remember: false }));
+      return;
+    }
+    localStorage.setItem(LOGIN_SAVE_KEY, JSON.stringify({
+      remember: true,
+      username: String(username || ""),
+      password: String(password || ""),
+    }));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 function login() {
   const themeLabel = state.theme === "dark" ? "Light theme" : "Dark theme";
+  const saved = readSavedLogin();
   return `
     <main class="login">
       ${toastsHtml()}
@@ -370,8 +407,9 @@ function login() {
       <form id="login-form" class="card">
         <p class="eyebrow">${esc(appName)}</p>
         <h1>Sign in</h1>
-        <label>Username <input id="username" name="username" autocomplete="username" required></label>
-        <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required></label>
+        <label>Username <input id="username" name="username" autocomplete="username" required value="${esc(saved.username)}"></label>
+        <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required value="${esc(saved.password)}"></label>
+        <label class="login-remember"><input name="remember" type="checkbox" value="1" ${saved.remember ? "checked" : ""}> Save username and password</label>
         <button class="primary" type="submit">Sign in</button>
       </form>
     </main>`;
@@ -1093,6 +1131,9 @@ function paymentsView() {
         return iconSlots([
           iconButton({ act: "view-payment", id: row.id, label: "View", name: "eye" }),
           src ? iconButton({ act: "see-image", src, caption: `${row.customer_name} receipt`, label: "See receipt", name: "image" }) : "",
+          isSuper()
+            ? iconButton({ act: "delete-payment", id: row.id, label: "Delete", name: "trash", tone: "bad" })
+            : "",
         ]);
       },
     })}
@@ -1842,6 +1883,7 @@ function paymentModal() {
       <div class="payment-head">
         <h2>Payment</h2>
         <div class="payment-actions">
+          ${isSuper() ? `<button type="button" class="danger action-btn" data-act="delete-payment" data-id="${esc(row.id)}">${svg(glyph.trash)} Delete</button>` : ""}
           <button type="button" class="danger action-btn" data-act="reject" data-id="${esc(row.id)}" ${locked ? "disabled" : ""}>${svg(glyph.x)} Reject</button>
           <button type="button" class="success action-btn" data-act="approve" data-id="${esc(row.id)}" ${locked ? "disabled" : ""}>${svg(glyph.check)} Approve</button>
         </div>
@@ -2668,6 +2710,24 @@ async function onClick(event) {
       render();
       return;
     }
+    if (act === "delete-payment") {
+      if (!isSuper()) {
+        notify("Super admin only", "error");
+        return;
+      }
+      const row = state.payments.rows.find((item) => String(item.id) === String(id))
+        || (state.modal?.kind === "payment" && String(state.modal.row?.id) === String(id) ? state.modal.row : null)
+        || (state.board.recentPayments || []).find((item) => String(item.id) === String(id));
+      state.modal = {
+        kind: "confirm",
+        act: "delete-payment",
+        id,
+        title: "Delete payment",
+        message: `Permanently delete ${row?.customer_name || "this payment"} for ${money(row?.amount)}${row?.ticket_numbers ? ` · tickets ${row.ticket_numbers}` : ""}? Ticket numbers become free again.`,
+      };
+      render();
+      return;
+    }
     if (act === "approve" || act === "reject") {
       const row = state.payments.rows.find((item) => String(item.id) === String(id))
         || (state.modal?.kind === "payment" ? state.modal.row : null);
@@ -2926,6 +2986,7 @@ function onChange(event) {
 async function submitLogin(form) {
   state.error = "";
   const data = Object.fromEntries(new FormData(form));
+  const remember = data.remember === "1";
   const { res, body } = await request("/api/admin-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2936,6 +2997,11 @@ async function submitLogin(form) {
     render();
     return;
   }
+  writeSavedLogin({
+    remember,
+    username: data.username,
+    password: data.password,
+  });
   state.admin = body.admin;
   state.view = canView(viewFromHash()) ? viewFromHash() : firstAllowedView();
   location.hash = viewHash[state.view] || "dashboard";
@@ -3077,6 +3143,9 @@ async function submitConfirm() {
     } else if (modal.act === "reject") {
       await postOk("/api/reject-payment", { payment_id: modal.id });
       notify("Payment rejected", "success");
+    } else if (modal.act === "delete-payment") {
+      await postOk("/api/admin-delete-payment", { payment_id: modal.id });
+      notify("Payment deleted", "success");
     }
     state.modal = null;
     state.error = "";
