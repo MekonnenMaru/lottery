@@ -3026,13 +3026,13 @@ function onChange(event) {
 }
 
 async function submitLogin(form) {
+  const data = Object.fromEntries(new FormData(form));
+  const remember = data.remember === "1";
   const button = form.querySelector("[type=submit]");
   const done = busyButton(button, "Signing in…");
   if (!done) return;
   lockForm(form, true);
   state.error = "";
-  const data = Object.fromEntries(new FormData(form));
-  const remember = data.remember === "1";
   try {
     const { res, body } = await request("/api/admin-login", {
       method: "POST",
@@ -3135,11 +3135,11 @@ async function submitDraw(form) {
 }
 
 async function submitBank(form) {
+  const data = Object.fromEntries(new FormData(form));
   const button = form.querySelector("[type=submit]");
   const done = busyButton(button, "Saving…");
   if (!done) return;
   lockForm(form, true);
-  const data = Object.fromEntries(new FormData(form));
   try {
     const payload = {
       bank_name: data.bank_name,
@@ -3267,6 +3267,7 @@ function formPrivileges(form) {
 
 async function submitAdmin(form) {
   const data = Object.fromEntries(new FormData(form));
+  const privileges = formPrivileges(form);
   const button = form.querySelector("[type=submit]");
   const adminId = data.admin_id || data.id;
   const editing = Boolean(adminId);
@@ -3285,7 +3286,6 @@ async function submitAdmin(form) {
         phone: data.phone || "",
       };
       if (!isSuperRow) {
-        const privileges = formPrivileges(form);
         if (!privileges.length) throw new Error("Pick at least one privilege");
         payload.privileges = privileges;
         if (data.password) payload.password = data.password;
@@ -3293,7 +3293,6 @@ async function submitAdmin(form) {
       await postOk("/api/admin-staff-update", payload);
       notify("Admin updated", "success");
     } else {
-      const privileges = formPrivileges(form);
       if (!privileges.length) throw new Error("Pick at least one privilege");
       await postOk("/api/admin-staff", {
         name: data.name,
@@ -3317,11 +3316,11 @@ async function submitAdmin(form) {
 }
 
 async function submitSettings(form) {
+  const data = Object.fromEntries(new FormData(form));
   const button = form.querySelector("[type=submit]");
   const done = busyButton(button, "Saving…");
   if (!done) return;
   lockForm(form, true);
-  const data = Object.fromEntries(new FormData(form));
   try {
     const { res, body } = await request("/api/admin-settings", {
       method: "POST",
