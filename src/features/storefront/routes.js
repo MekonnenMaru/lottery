@@ -39,6 +39,7 @@ import {
   storeDashboard,
   storeLotteries,
   storeLotteryOrders,
+  storeLotteryProgress,
   storeMyTickets,
   storePayments,
   storeSoldTickets,
@@ -411,6 +412,12 @@ router.get("/lottery-orders", ...winners, wrap(async (req, res) => {
   const lotteryId = idOf(req.query.lottery_id);
   if (!lotteryId) throw httpError(404, "Lottery not found");
   res.json({ success: true, data: await storeLotteryOrders(lotteryId) });
+}));
+
+router.get("/admin-lottery-progress", ...lotOrReport, wrap(async (req, res) => {
+  const lotteryId = idOf(req.query.lottery_id);
+  if (!lotteryId) throw httpError(404, "Lottery not found");
+  res.json({ success: true, data: await storeLotteryProgress(lotteryId) });
 }));
 
 router.post("/announce-winner", ...winners, wrap(async (req, res) => {

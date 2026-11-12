@@ -491,3 +491,92 @@ export async function storeLotteryOrders(lotteryId) {
     payment_status: "approved",
   }));
 }
+
+/** Staff progress view: counts, held numbers, and buyer rows for one lottery. */
+export async function storeLotteryProgress(lotteryId) {
+  await expireReservations();
+  const lottery = await get(`
+    SELECT l.*, t.ticket_number AS winner_ticket_number,
+           o.customer_name AS winner_name, o.phone AS winner_phone
+    FROM lotteries l
+    LEFT JOIN tickets t ON t.id = l.winner_ticket_id
+    LEFT JOIN orders o ON o.id = t.order_id
+    WHERE l.id = ?
+  `, [lotteryId]);
+  if (!lottery) throw httpError(404, "Lottery not found");
+
+  const rows = await all(`
+    SELECT t.ticket_number, t.status AS ticket_status,
+           o.id AS order_id, o.status AS order_status, o.amount, o.customer_name, o.phone, o.created_at
+    FROM tickets t
+    JOIN orders o ON o.id = t.order_id
+    WHERE t.lottery_id = ?
+      AND o.status IN ('pending', 'reserved', 'approved')
+    ORDER BY t.ticket_number
+  `, [lotteryId]);
+
+  const total = Number(lottery.total_tickets) || 0;
+  const price = Number(lottery.ticket_price) || 0;
+  let taken = 0;
+  let pending = 0;
+  let collected = 0;
+  let pendingAmount = 0;
+  const tickets = rows.map((row) => {
+    const status = paymentStatus(row.order_status || row.ticket_status);
+    const amount = Number(row.amount) || 0;
+    if (status === "approved") {
+      taken += 1;
+      collected += price;
+    } else {
+      pending += 1;
+      pendingAmount += price;
+    }
+    return {
+      ticket_number: padTicket(row.ticket_number),
+      number: Number(row.ticket_number),
+      status,
+      order_id: row.order_id == null ? null : Number(row.order_id),
+      customer_name: row.customer_name || "",
+      customer_phone: row.phone || "",
+      amount,
+      created_at: iso(row.created_at),
+    };
+  });
+  const free = Math.max(0, total - taken - pending);
+  const fillPercent = total > 0 ? Math.round(((taken + pending) / total) * 1000) / 10 : 0;
+
+  return {
+    lottery: {
+      id: String(lottery.id),
+      title: lottery.title || "",
+      subtitle: lottery.subtitle || "",
+      prize: lottery.prize || lottery.title || "",
+      ticket_price: price,
+      total_tickets: total,
+      status: lottery.status,
+      is_featured: Number(lottery.is_featured) === 1 ? "1" : "0",
+      hidden: Number(lottery.hidden) === 1 ? "1" : "0",
+      start_date: iso(lottery.start_at),
+      end_date: iso(lottery.end_at),
+      announced_at: lottery.announced_at ? iso(lottery.announced_at) : "",
+    },
+    summary: {
+      total,
+      taken,
+      pending,
+      free,
+      fill_percent: fillPercent,
+      collected,
+      pending_amount: pendingAmount,
+      expected: price * total,
+    },
+    winner: lottery.winner_ticket_number == null
+      ? null
+      : {
+          ticket_number: padTicket(lottery.winner_ticket_number),
+          customer_name: lottery.winner_name || "",
+          customer_phone: lottery.winner_phone || "",
+        },
+    tickets,
+  };
+}

@@ -1004,6 +1004,7 @@ function drawActions(row) {
   const images = imageList(row);
   return iconSlots([
     images.length ? iconButton({ act: "see-image", id: row.id, gallery: true, src: images[0], caption: row.title, label: images.length > 1 ? "See images" : "See image", name: "image" }) : "",
+    iconButton({ act: "progress-draw", id: row.id, label: "Progress", name: "chart" }),
     iconButton({ act: "edit-draw", id: row.id, label: "Edit", name: "edit" }),
     open ? iconButton({ act: "winner", id: row.id, label: "Pick winner", name: "trophy" }) : "",
     isSuper() && !sold
@@ -1366,6 +1367,7 @@ function modalHtml() {
     bank: bankForm,
     admin: adminForm,
     tickets: ticketsModal,
+    progress: progressModal,
     confirm: confirmModal,
     payment: paymentModal,
     winner: winnerModal,
@@ -1374,6 +1376,127 @@ function modalHtml() {
     password: passwordForm,
   }[state.modal.kind];
   return `<div class="backdrop">${inner()}</div>`;
+}
+
+function progressBoard(total, byNumber, filter) {
+  const cells = [];
+  for (let number = 1; number <= total; number += 1) {
+    const hit = byNumber.get(number);
+    const kind = hit?.status === "approved" ? "taken" : (hit ? "pending" : "free");
+    if (filter === "taken" && kind !== "taken") continue;
+    if (filter === "pending" && kind !== "pending") continue;
+    if (filter === "free" && kind !== "free") continue;
+    if (filter === "held" && kind === "free") continue;
+    const label = padTicketDisplay(number);
+    const tip = hit
+      ? `${label} · ${hit.status} · ${hit.customer_name || hit.customer_phone || "Buyer"}`
+      : `${label} · free`;
+    cells.push(
+      `<button type="button" class="num-cell is-${kind}" data-act="progress-number" data-number="${number}" title="${esc(tip)}" aria-label="${esc(tip)}">${esc(label)}</button>`,
+    );
+  }
+  return cells.length
+    ? `<div class="num-board">${cells.join("")}</div>`
+    : `<p class="muted">No numbers in this filter.</p>`;
+}
+
+function padTicketDisplay(number) {
+  return String(number).padStart(3, "0");
+}
+
+function progressModal() {
+  const modal = state.modal;
+  if (modal.loading) {
+    return `<div class="modal-card wide">${modalClose()}<h2>Lottery progress</h2><p class="muted">Loading…</p></div>`;
+  }
+  const lottery = modal.lottery || {};
+  const summary = modal.summary || {};
+  const tickets = modal.tickets || [];
+  const filter = modal.boardFilter || "all";
+  const search = modal.search || "";
+  const byNumber = new Map(tickets.map((row) => [Number(row.number), row]));
+  const filteredBuyers = tickets.filter((row) => match(row, search, [
+    "ticket_number", "customer_name", "customer_phone", "status", "order_id",
+  ]));
+  const focus = modal.focusNumber ? byNumber.get(Number(modal.focusNumber)) : null;
+  const info = pageSlice(filteredBuyers, modal);
+  const filters = [
+    ["all", "All"],
+    ["held", "Taken + pending"],
+    ["taken", "Taken"],
+    ["pending", "Pending"],
+    ["free", "Free"],
+  ];
+  return `
+    <div class="modal-card wide progress-modal">
+      ${modalClose()}
+      <div class="progress-head">
+        <div>
+          <h2>${esc(lottery.title || "Lottery progress")}</h2>
+          <p class="muted">${esc(lottery.subtitle || lottery.prize || "")}</p>
+        </div>
+        <div class="progress-meta">
+          ${badge(lottery.status || "active")}
+          ${lottery.is_featured === "1" ? badge("featured") : ""}
+          ${lottery.hidden === "1" ? badge("hidden") : ""}
+        </div>
+      </div>
+      <div class="progress-stats">
+        <div><span class="muted">Total</span><strong>${esc(summary.total || 0)}</strong></div>
+        <div><span class="muted">Taken</span><strong>${esc(summary.taken || 0)}</strong></div>
+        <div><span class="muted">Pending</span><strong>${esc(summary.pending || 0)}</strong></div>
+        <div><span class="muted">Free</span><strong>${esc(summary.free || 0)}</strong></div>
+        <div><span class="muted">Filled</span><strong>${esc(summary.fill_percent || 0)}%</strong></div>
+        <div><span class="muted">Collected</span><strong>${esc(money(summary.collected || 0))}</strong></div>
+        <div><span class="muted">In review</span><strong>${esc(money(summary.pending_amount || 0))}</strong></div>
+        <div><span class="muted">Expected</span><strong>${esc(money(summary.expected || 0))}</strong></div>
+      </div>
+      <p class="muted progress-timing">
+        ${esc(money(lottery.ticket_price || 0))} / ticket
+        · Starts ${esc(when(lottery.start_date))}
+        · Ends ${esc(when(lottery.end_date))}
+        ${modal.winner ? ` · Winner #${esc(modal.winner.ticket_number)} (${esc(modal.winner.customer_name || modal.winner.customer_phone || "—")})` : ""}
+      </p>
+      <div class="progress-fill" aria-hidden="true"><span style="width:${Math.min(100, Number(summary.fill_percent) || 0)}%"></span></div>
+      ${focus ? `<p class="progress-focus">#${esc(focus.ticket_number)} · ${badge(focus.status)} · ${esc(focus.customer_name || "—")} · ${esc(focus.customer_phone || "—")}</p>` : ""}
+      <div class="progress-section">
+        <div class="progress-section-head">
+          <h3>Numbers</h3>
+          <div class="chip-row">
+            ${filters.map(([value, label]) => `
+              <button type="button" class="chip ${filter === value ? "on" : ""}" data-act="progress-filter" data-filter="${value}">${esc(label)}</button>
+            `).join("")}
+          </div>
+        </div>
+        <div class="num-legend">
+          <span class="is-taken">Taken</span>
+          <span class="is-pending">Pending</span>
+          <span class="is-free">Free</span>
+        </div>
+        ${progressBoard(Number(summary.total) || 0, byNumber, filter)}
+      </div>
+      <div class="progress-section">
+        <div class="progress-section-head">
+          <h3>Buyers</h3>
+          <label class="progress-search">Filter
+            <input id="modal-filter" type="search" value="${esc(search)}" placeholder="Ticket, name, phone" aria-label="Filter buyers">
+          </label>
+        </div>
+        ${tableHtml({
+          name: "Lottery buyers",
+          empty: tickets.length ? "No buyers match this filter." : "No tickets taken yet.",
+          columns: [
+            { label: "Ticket", cell: (row) => esc(row.ticket_number) },
+            { label: "Buyer", cell: (row) => esc(row.customer_name || "—") },
+            { label: "Phone", cell: (row) => esc(row.customer_phone || "—") },
+            { label: "Status", cell: (row) => badge(row.status) },
+            { label: "When", cell: (row) => esc(when(row.created_at)) },
+          ],
+          rows: info.rows,
+        })}
+        ${pagerHtml(info, "modal-page")}
+      </div>
+    </div>`;
 }
 
 function drawPhotos() {
@@ -2272,6 +2395,65 @@ async function onClick(event) {
         title: "Delete this lottery",
         message: "This removes the lottery. Lotteries that already have tickets stay.",
       };
+      render();
+      return;
+    }
+    if (act === "progress-draw") {
+      const draw = state.draws.rows.find((row) => String(row.id) === String(id));
+      state.modal = {
+        kind: "progress",
+        loading: true,
+        lotteryId: id,
+        lottery: draw ? { title: draw.title, subtitle: draw.subtitle } : null,
+        summary: null,
+        tickets: [],
+        winner: null,
+        boardFilter: "all",
+        focusNumber: null,
+        search: "",
+        page: 1,
+        pageSize: 10,
+      };
+      state.error = "";
+      render();
+      const { res, body } = await request(`/api/admin-lottery-progress?lottery_id=${encodeURIComponent(id)}`);
+      unauthorized(res);
+      if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load lottery progress"));
+      if (state.modal?.kind !== "progress" || String(state.modal.lotteryId) !== String(id)) return;
+      const data = body.data || {};
+      state.modal = {
+        kind: "progress",
+        loading: false,
+        lotteryId: id,
+        lottery: data.lottery || {},
+        summary: data.summary || {},
+        tickets: data.tickets || [],
+        winner: data.winner || null,
+        boardFilter: Number(data.summary?.total) > 500 ? "held" : "all",
+        focusNumber: null,
+        search: "",
+        page: 1,
+        pageSize: 10,
+      };
+      render();
+      return;
+    }
+    if (act === "progress-filter") {
+      if (state.modal?.kind !== "progress") return;
+      state.modal.boardFilter = el.dataset.filter || "all";
+      render();
+      return;
+    }
+    if (act === "progress-number") {
+      if (state.modal?.kind !== "progress") return;
+      const number = Number(el.dataset.number);
+      if (!number) return;
+      state.modal.focusNumber = number;
+      const hit = (state.modal.tickets || []).find((row) => Number(row.number) === number);
+      if (hit) {
+        state.modal.search = hit.ticket_number || "";
+        state.modal.page = 1;
+      }
       render();
       return;
     }
