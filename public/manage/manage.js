@@ -948,6 +948,41 @@ function spinGlyph() {
   return `<svg class="spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.28"></circle><path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></path></svg>`;
 }
 
+/** Disable a button and show spinner + label. Returns restore fn, or null if already busy. */
+function busyButton(button, label) {
+  if (!button) return () => {};
+  if (button.dataset.busy === "1") return null;
+  const prevHtml = button.innerHTML;
+  const prevDisabled = button.disabled;
+  button.dataset.busy = "1";
+  button.disabled = true;
+  button.classList.add("is-busy");
+  button.setAttribute("aria-busy", "true");
+  button.innerHTML = `${spinGlyph()} <span>${esc(label)}</span>`;
+  return () => {
+    if (!button.isConnected) return;
+    button.dataset.busy = "";
+    button.disabled = prevDisabled;
+    button.classList.remove("is-busy");
+    button.removeAttribute("aria-busy");
+    button.innerHTML = prevHtml;
+  };
+}
+
+function lockForm(form, locked) {
+  if (!form) return;
+  form.querySelectorAll("input, select, textarea, button").forEach((el) => {
+    if (el.dataset.busy === "1") return;
+    if (locked) {
+      if (!el.dataset.wasDisabled) el.dataset.wasDisabled = el.disabled ? "1" : "0";
+      el.disabled = true;
+    } else if (el.dataset.wasDisabled != null) {
+      el.disabled = el.dataset.wasDisabled === "1";
+      delete el.dataset.wasDisabled;
+    }
+  });
+}
+
 function setDrawSaving(next) {
   if (state.modal?.kind === "draw") state.modal.saving = next || null;
   const box = document.querySelector("#draw-saving");
@@ -2193,12 +2228,13 @@ async function onClick(event) {
     return;
   }
   const el = event.target.closest("[data-act]");
-  if (!el || el.disabled) return;
+  if (!el || el.disabled || el.dataset.busy === "1") return;
   const act = el.dataset.act;
   const id = el.dataset.id;
   try {
     if (act === "close-modal") {
       if (state.modal?.kind === "draw" && state.modal.saving) return;
+      if (state.modal?.busy) return;
       if (state.modal?.kind === "payment" && state.modal.transferEdit) {
         state.modal.transferEdit = false;
         render();
@@ -2285,7 +2321,13 @@ async function onClick(event) {
       return;
     }
     if (act === "logout") {
-      await request("/api/admin-logout", { method: "POST" });
+      const done = busyButton(el, "Signing out…");
+      if (!done) return;
+      try {
+        await request("/api/admin-logout", { method: "POST" });
+      } catch {
+        /* still clear local session */
+      }
       state.admin = null;
       closeModal();
       state.notice = "";
@@ -2984,33 +3026,46 @@ function onChange(event) {
 }
 
 async function submitLogin(form) {
+  const button = form.querySelector("[type=submit]");
+  const done = busyButton(button, "Signing in…");
+  if (!done) return;
+  lockForm(form, true);
   state.error = "";
   const data = Object.fromEntries(new FormData(form));
   const remember = data.remember === "1";
-  const { res, body } = await request("/api/admin-login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: data.username, password: data.password }),
-  });
-  if (!res.ok || body.success === false) {
-    notify(messageOf(body, "Invalid username or password"), "error");
-    render();
-    return;
-  }
-  writeSavedLogin({
-    remember,
-    username: data.username,
-    password: data.password,
-  });
-  state.admin = body.admin;
-  state.view = canView(viewFromHash()) ? viewFromHash() : firstAllowedView();
-  location.hash = viewHash[state.view] || "dashboard";
   try {
-    await refresh();
+    const { res, body } = await request("/api/admin-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: data.username, password: data.password }),
+    });
+    if (!res.ok || body.success === false) {
+      notify(messageOf(body, "Invalid username or password"), "error");
+      lockForm(form, false);
+      done();
+      render();
+      return;
+    }
+    writeSavedLogin({
+      remember,
+      username: data.username,
+      password: data.password,
+    });
+    state.admin = body.admin;
+    state.view = canView(viewFromHash()) ? viewFromHash() : firstAllowedView();
+    location.hash = viewHash[state.view] || "dashboard";
+    try {
+      await refresh();
+    } catch (error) {
+      notify(error.message || "Something went wrong", "error");
+    }
+    render();
   } catch (error) {
-    notify(error.message || "Something went wrong", "error");
+    notify(error.message || "Could not sign in", "error");
+    lockForm(form, false);
+    done();
+    render();
   }
-  render();
 }
 
 async function submitDraw(form) {
@@ -3080,9 +3135,11 @@ async function submitDraw(form) {
 }
 
 async function submitBank(form) {
-  const data = Object.fromEntries(new FormData(form));
   const button = form.querySelector("[type=submit]");
-  button.disabled = true;
+  const done = busyButton(button, "Saving…");
+  if (!done) return;
+  lockForm(form, true);
+  const data = Object.fromEntries(new FormData(form));
   try {
     const payload = {
       bank_name: data.bank_name,
@@ -3102,15 +3159,33 @@ async function submitBank(form) {
     await refresh();
     render();
   } catch (error) {
+    lockForm(form, false);
+    done();
     if (error.unauthorized) caught(error);
     else showModalError(error);
-  } finally {
-    button.disabled = false;
   }
 }
 
 async function submitConfirm() {
   const modal = state.modal;
+  if (!modal || modal.busy) return;
+  const form = document.getElementById("confirm-form");
+  const button = form?.querySelector("[type=submit]");
+  const labels = {
+    "hide-draw": modal.hidden === "1" ? "Hiding…" : "Showing…",
+    feature: "Featuring…",
+    "delete-draw": "Deleting…",
+    announce: "Announcing…",
+    "bank-status": "Updating…",
+    "admin-status": "Updating…",
+    "clear-logs": "Clearing…",
+    approve: "Approving…",
+    reject: "Rejecting…",
+    "delete-payment": "Deleting…",
+  };
+  const done = busyButton(button, labels[modal.act] || "Working…");
+  if (!done) return;
+  modal.busy = true;
   try {
     if (modal.act === "hide-draw") {
       await postOk("/api/admin-hide-lottery", { id: modal.id, hidden: modal.hidden });
@@ -3152,6 +3227,8 @@ async function submitConfirm() {
     await refresh();
     render();
   } catch (error) {
+    if (state.modal) state.modal.busy = false;
+    done();
     if (error.unauthorized) caught(error);
     else showModalError(error);
   }
@@ -3164,7 +3241,9 @@ async function submitPassword(form) {
     return;
   }
   const button = form.querySelector("[type=submit]");
-  button.disabled = true;
+  const done = busyButton(button, "Saving…");
+  if (!done) return;
+  lockForm(form, true);
   try {
     await postOk("/api/admin-password", {
       current_password: data.current_password,
@@ -3175,10 +3254,10 @@ async function submitPassword(form) {
     state.error = "";
     render();
   } catch (error) {
+    lockForm(form, false);
+    done();
     if (error.unauthorized) caught(error);
     else showModalError(error);
-  } finally {
-    button.disabled = false;
   }
 }
 
@@ -3195,7 +3274,9 @@ async function submitAdmin(form) {
     ? state.admins.rows.find((row) => String(row.id) === String(adminId))
     : null;
   const isSuperRow = editingRow?.role === "super";
-  button.disabled = true;
+  const done = busyButton(button, editing ? "Saving…" : "Creating…");
+  if (!done) return;
+  lockForm(form, true);
   try {
     if (editing) {
       const payload = {
@@ -3228,17 +3309,19 @@ async function submitAdmin(form) {
     await refresh();
     render();
   } catch (error) {
+    lockForm(form, false);
+    done();
     if (error.unauthorized) caught(error);
     else showModalError(error);
-  } finally {
-    button.disabled = false;
   }
 }
 
 async function submitSettings(form) {
-  const data = Object.fromEntries(new FormData(form));
   const button = form.querySelector("[type=submit]");
-  button.disabled = true;
+  const done = busyButton(button, "Saving…");
+  if (!done) return;
+  lockForm(form, true);
+  const data = Object.fromEntries(new FormData(form));
   try {
     const { res, body } = await request("/api/admin-settings", {
       method: "POST",
@@ -3273,18 +3356,19 @@ async function submitSettings(form) {
     state.error = "";
     render();
   } catch (error) {
+    lockForm(form, false);
+    done();
     caught(error);
-  } finally {
-    button.disabled = false;
   }
 }
 
 async function submitTxn(form) {
   if (state.modal?.kind !== "payment" || !state.modal.row) return;
   if (state.modal.row.status !== "pending") return;
-  const data = Object.fromEntries(new FormData(form));
   const button = form.querySelector("[type=submit]");
-  button.disabled = true;
+  const done = busyButton(button, "Saving…");
+  if (!done) return;
+  const data = Object.fromEntries(new FormData(form));
   try {
     const { res, body } = await request("/api/set-transaction-id", {
       method: "POST",
@@ -3304,6 +3388,7 @@ async function submitTxn(form) {
     state.error = "";
     render();
   } catch (error) {
+    done();
     if (error.unauthorized) {
       state.admin = null;
       state.modal = null;
@@ -3313,16 +3398,15 @@ async function submitTxn(form) {
       notify(error.message || "Could not save transaction ID", "error");
       render();
     }
-  } finally {
-    button.disabled = false;
   }
 }
 
 async function submitTransfer(form) {
   if (state.modal?.kind !== "payment" || !state.modal.row) return;
-  const data = Object.fromEntries(new FormData(form));
   const button = form.querySelector("[type=submit]");
-  button.disabled = true;
+  const done = busyButton(button, "Saving…");
+  if (!done) return;
+  const data = Object.fromEntries(new FormData(form));
   try {
     const payload = { payment_id: state.modal.row.id };
     if (data.bank_account_id) payload.bank_account_id = Number(data.bank_account_id);
@@ -3351,6 +3435,7 @@ async function submitTransfer(form) {
     state.error = "";
     render();
   } catch (error) {
+    done();
     if (error.unauthorized) {
       state.admin = null;
       state.modal = null;
@@ -3360,8 +3445,6 @@ async function submitTransfer(form) {
       notify(error.message || "Could not save payment details", "error");
       render();
     }
-  } finally {
-    button.disabled = false;
   }
 }
 
