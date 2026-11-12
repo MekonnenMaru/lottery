@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { receiptDir } from "../../config/paths.js";
 import { get, iso, withTransaction } from "../../db.js";
-import { httpError } from "../../util.js";
+import { httpError, optionalText } from "../../util.js";
 import { writeAudit } from "../audit/service.js";
 import { normalizeTransactionId, preprocessReceipt, receiptKind, recognizeText } from "./ocr.js";
 
@@ -243,5 +243,85 @@ export async function setPaymentTransactionId(paymentId, rawTransactionId, admin
   return {
     payment_id: Number(paymentId),
     transaction_id: transactionId,
+  };
+}
+
+/** Fill bank / sender only when the buyer left them empty. */
+export async function setPaymentTransferDetails(paymentId, { bankAccountId, senderAccount }, adminId) {
+  if (!adminId) throw httpError(401, "Staff sign-in required");
+  const order = await get(
+    "SELECT id, bank_account_id, sender_account FROM orders WHERE id = ?",
+    [paymentId],
+  );
+  if (!order) throw httpError(404, "Payment not found");
+
+  const bankEmpty = order.bank_account_id == null || Number(order.bank_account_id) < 1;
+  const senderEmpty = !String(order.sender_account || "").trim();
+  if (!bankEmpty && !senderEmpty) {
+    throw httpError(400, "Bank and sender are already set");
+  }
+
+  let nextBankId = null;
+  let nextBankName = "";
+  const wantedBank = Number(bankAccountId);
+  if (bankEmpty && Number.isInteger(wantedBank) && wantedBank > 0) {
+    const bank = await get(
+      "SELECT id, bank_name FROM bank_accounts WHERE id = ? AND active = 1",
+      [wantedBank],
+    );
+    if (!bank) throw httpError(400, "Choose an active bank account");
+    nextBankId = Number(bank.id);
+    nextBankName = bank.bank_name || "";
+  }
+
+  let nextSender = null;
+  if (senderEmpty) {
+    const sender = optionalText(senderAccount, 40);
+    if (sender === null) throw httpError(400, "Sender account is too long");
+    if (sender) nextSender = sender;
+  }
+
+  if (nextBankId == null && nextSender == null) {
+    throw httpError(400, "Enter a bank or sender to save");
+  }
+
+  await withTransaction(async (tx) => {
+    if (nextBankId != null && nextSender != null) {
+      await tx.run(
+        "UPDATE orders SET bank_account_id = ?, sender_account = ? WHERE id = ? AND bank_account_id IS NULL",
+        [nextBankId, nextSender, paymentId],
+      );
+    } else if (nextBankId != null) {
+      await tx.run(
+        "UPDATE orders SET bank_account_id = ? WHERE id = ? AND bank_account_id IS NULL",
+        [nextBankId, paymentId],
+      );
+    } else {
+      await tx.run(
+        `UPDATE orders SET sender_account = ?
+         WHERE id = ? AND (sender_account IS NULL OR sender_account = '')`,
+        [nextSender, paymentId],
+      );
+    }
+    await writeAudit(tx, adminId, "set_payment_transfer", {
+      orderId: paymentId,
+      bankId: nextBankId,
+      bank_name: nextBankName || undefined,
+      sender: nextSender || undefined,
+    });
+  });
+
+  const fresh = await get(
+    `SELECT o.bank_account_id, o.sender_account, b.bank_name
+     FROM orders o
+     LEFT JOIN bank_accounts b ON b.id = o.bank_account_id
+     WHERE o.id = ?`,
+    [paymentId],
+  );
+  return {
+    payment_id: Number(paymentId),
+    bank_account_id: fresh?.bank_account_id == null ? null : Number(fresh.bank_account_id),
+    bank_name: fresh?.bank_name || "",
+    sender_account: fresh?.sender_account || "",
   };
 }

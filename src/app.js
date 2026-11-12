@@ -8,6 +8,7 @@ import { LOTTERY_BASE_PATH, rewritePublicPaths } from "./config/embed.js";
 import { env } from "./config/env.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import adminRoutes from "./features/admin/routes.js";
+import auditRoutes from "./features/audit/routes.js";
 import authRoutes from "./features/auth/routes.js";
 import customerRoutes from "./features/customers/routes.js";
 import ocrScannerRoutes from "./features/OCR-scanner/routes.js";
@@ -93,6 +94,7 @@ export function createApp(options = {}) {
   });
   api.use(authRoutes);
   api.use(adminRoutes);
+  api.use(auditRoutes);
   api.use(customerRoutes);
   api.use(ocrScannerRoutes);
   api.use(storefrontRoutes);

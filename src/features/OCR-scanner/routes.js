@@ -12,5 +12,6 @@ router.post("/scan-receipt", ...payments, ocrScanLimiter, wrap(controller.scan))
 router.get("/scan-receipt", ...payments, ocrScanLimiter, wrap(controller.scan));
 router.post("/clear-receipt-ocr", ...payments, wrap(controller.clear));
 router.post("/set-transaction-id", ...payments, wrap(controller.setTransactionId));
+router.post("/set-payment-transfer", ...payments, wrap(controller.setTransferDetails));
 
 export default router;

@@ -7,7 +7,7 @@ import { requireStaff } from "./middleware.js";
 const router = Router();
 
 router.get("/admin-session", requireStaff, wrap(controller.session));
-router.post("/admin-login", siteLimiter(10), wrap(controller.login));
+router.post("/admin-login", siteLimiter(30, { skipSuccessfulRequests: true }), wrap(controller.login));
 router.post("/admin-logout", requireStaff, wrap(controller.logout));
 router.post("/admin-password", requireStaff, siteLimiter(10), wrap(controller.changePassword));
 

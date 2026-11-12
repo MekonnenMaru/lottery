@@ -11,6 +11,7 @@ export const PRIVILEGES = [
   { id: "winners", label: "Winners" },
   { id: "customers", label: "Customers" },
   { id: "reports", label: "Reports" },
+  { id: "logs", label: "Event logs" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -64,10 +65,11 @@ export async function ensureAdmin() {
       [username, passwordHash, "Super Admin"],
     );
   } else {
-    await run("UPDATE admins SET role = 'super', active = 1, name = COALESCE(NULLIF(name, ''), ?) WHERE id = ?", [
-      "Super Admin",
-      existing.id,
-    ]);
+    // Keep env super-admin password in sync with LOTTERY_ADMIN_PASSWORD.
+    await run(
+      "UPDATE admins SET role = 'super', active = 1, password_hash = ?, name = COALESCE(NULLIF(name, ''), ?) WHERE id = ?",
+      [passwordHash, "Super Admin", existing.id],
+    );
   }
   // Only the configured account stays super; other accounts keep full access as regular admins.
   const allPriv = JSON.stringify(PRIVILEGES.map((row) => row.id));

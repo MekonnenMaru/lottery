@@ -43,3 +43,17 @@ export async function setTransactionId(req, res) {
   );
   res.json({ success: true, ...result });
 }
+
+export async function setTransferDetails(req, res) {
+  const paymentId = idOf(req.body?.payment_id);
+  if (!paymentId) throw httpError(400, "Provide a payment_id");
+  const result = await scanner.setPaymentTransferDetails(
+    paymentId,
+    {
+      bankAccountId: idOf(req.body?.bank_account_id),
+      senderAccount: req.body?.sender_account,
+    },
+    req.admin.id,
+  );
+  res.json({ success: true, ...result });
+}

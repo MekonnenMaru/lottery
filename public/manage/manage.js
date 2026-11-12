@@ -11,6 +11,7 @@ const viewHash = {
   customers: "customers",
   report: "report",
   admins: "admins",
+  logs: "logs",
   settings: "settings",
 };
 const hashView = {
@@ -30,6 +31,10 @@ const hashView = {
   admin: "admins",
   accounts: "admins",
   staff: "admins",
+  logs: "logs",
+  log: "logs",
+  events: "logs",
+  audit: "logs",
   settings: "settings",
   setting: "settings",
   branding: "settings",
@@ -49,6 +54,7 @@ const state = {
   })(),
   error: "",
   notice: "",
+  toasts: [],
   pending: 0,
   board: {
     preset: "month",
@@ -115,6 +121,7 @@ const state = {
     loaded: false,
   },
   admins: { rows: [], privileges: [], search: "", status: "all", page: 1, pageSize: 10 },
+  logs: { rows: [], actions: [], search: "", status: "all", page: 1, pageSize: 25, total: 0 },
   modal: null,
 };
 
@@ -126,6 +133,7 @@ const viewPrivilege = {
   winners: "winners",
   customers: "customers",
   report: "reports",
+  logs: "logs",
   settings: "settings",
 };
 
@@ -146,7 +154,7 @@ function canView(view) {
 }
 
 function firstAllowedView() {
-  return ["dashboard", "payments", "draws", "banks", "winners", "customers", "report", "admins", "settings"].find(canView) || "dashboard";
+  return ["dashboard", "payments", "draws", "banks", "winners", "customers", "report", "admins", "logs", "settings"].find(canView) || "dashboard";
 }
 
 let loadSeq = 0;
@@ -160,6 +168,63 @@ function esc(value) {
     '"': "&quot;",
     "'": "&#39;",
   }[ch]));
+}
+
+let toastSeq = 0;
+const toastTimers = Object.create(null);
+const toastTypes = new Set(["success", "error", "warning", "info", "default"]);
+
+function toastKind(type) {
+  const name = String(type || "default").toLowerCase();
+  if (name === "ok" || name === "done") return "success";
+  if (name === "danger" || name === "fail" || name === "failed") return "error";
+  if (name === "warn" || name === "caution") return "warning";
+  return toastTypes.has(name) ? name : "default";
+}
+
+/** One shared notification API: notify(message, type). */
+function notify(message, type = "default") {
+  const text = String(message ?? "").trim();
+  if (!text) return;
+  const kind = toastKind(type);
+  const id = ++toastSeq;
+  state.toasts = [...state.toasts, { id, message: text, type: kind }];
+  if (!state.admin && (kind === "error" || kind === "warning")) state.error = text;
+  if (kind === "success") state.notice = "";
+  if (state.admin && (kind === "error" || kind === "warning")) state.error = "";
+  render();
+  window.clearTimeout(toastTimers[id]);
+  toastTimers[id] = window.setTimeout(() => dismissToast(id), 4500);
+}
+
+function dismissToast(id) {
+  window.clearTimeout(toastTimers[id]);
+  delete toastTimers[id];
+  const next = state.toasts.filter((row) => row.id !== id);
+  if (next.length === state.toasts.length) return;
+  state.toasts = next;
+  render();
+}
+
+function toastIcon(type) {
+  if (type === "success") return glyph.check;
+  if (type === "error") return glyph.x;
+  if (type === "warning") return glyph.warn;
+  if (type === "info") return glyph.info;
+  return "";
+}
+
+function toastsHtml() {
+  if (!state.toasts.length) return "";
+  return `
+    <div class="toast-stack" aria-live="polite" aria-relevant="additions">
+      ${state.toasts.map((row) => `
+        <div class="toast toast-${esc(row.type)}" role="${row.type === "error" || row.type === "warning" ? "alert" : "status"}">
+          ${toastIcon(row.type) ? `<span class="toast-icon" aria-hidden="true">${svg(toastIcon(row.type))}</span>` : ""}
+          <p class="toast-msg">${esc(row.message)}</p>
+          <button type="button" class="toast-close" data-act="dismiss-toast" data-id="${esc(row.id)}" aria-label="Dismiss">${svg(glyph.x)}</button>
+        </div>`).join("")}
+    </div>`;
 }
 
 function appBase() {
@@ -293,14 +358,16 @@ function render() {
 }
 
 function login() {
+  const themeLabel = state.theme === "dark" ? "Light theme" : "Dark theme";
   return `
     <main class="login">
+      ${toastsHtml()}
+      <button type="button" class="icon-btn login-theme" data-act="theme" aria-label="${esc(themeLabel)}" title="${esc(themeLabel)}">${svg(state.theme === "dark" ? glyph.sun : glyph.moon)}</button>
       <form id="login-form" class="card">
         <p class="eyebrow">${esc(appName)}</p>
         <h1>Sign in</h1>
         <label>Username <input id="username" name="username" autocomplete="username" required></label>
         <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required></label>
-        ${state.error ? `<p class="alert" role="alert">${esc(state.error)}</p>` : ""}
         <button class="primary" type="submit">Sign in</button>
       </form>
     </main>`;
@@ -316,6 +383,7 @@ function shell() {
     ["customers", "Customers", "", "user"],
     ["report", "Report", "", "file"],
     ["admins", "Admin accounts", "", "key"],
+    ["logs", "Event logs", "", "list"],
     ["settings", "Settings", "", "gear"],
   ].filter(([id]) => canView(id));
   const titles = {
@@ -327,6 +395,7 @@ function shell() {
     customers: ["Customers", "People registered with Telegram, and the orders they placed."],
     report: ["Report", "Review the rows, then export them."],
     admins: ["Admin accounts", "Create admins and choose what they can open."],
+    logs: ["Event logs", "Track staff actions across payments, lotteries, banks, and accounts."],
     settings: ["Settings", "App name and OCR scan limits."],
   };
   if (!canView(state.view)) state.view = firstAllowedView();
@@ -370,11 +439,10 @@ function shell() {
           </div>
         </header>
         <section class="workspace">
-          ${state.error ? `<p class="alert" role="alert">${esc(state.error)}</p>` : ""}
-          ${state.notice ? `<p class="ok" role="status">${esc(state.notice)}</p>` : ""}
           ${viewBody()}
         </section>
       </div>
+      ${toastsHtml()}
       ${modalHtml()}
     </div>`;
 }
@@ -387,8 +455,48 @@ function viewBody() {
   if (state.view === "customers") return customersView();
   if (state.view === "report") return reportView();
   if (state.view === "admins") return adminsView();
+  if (state.view === "logs") return logsView();
   if (state.view === "settings") return settingsView();
   return drawsView();
+}
+
+function logsView() {
+  const bag = state.logs;
+  const pages = Math.max(1, Math.ceil(bag.total / bag.pageSize));
+  const info = {
+    rows: bag.rows,
+    total: bag.total,
+    pages,
+    page: Math.min(bag.page, pages),
+    start: (Math.min(bag.page, pages) - 1) * bag.pageSize,
+  };
+  const statuses = [
+    ["all", "All actions"],
+    ...(bag.actions || []).map((item) => [item.id, item.label]),
+  ];
+  return `
+    ${toolbar({
+      placeholder: "Filter by action, staff, or detail",
+      statuses,
+      extra: isSuper()
+        ? `<button type="button" class="danger" data-act="clear-logs">${svg(glyph.trash)} Clear logs</button>`
+        : "",
+    })}
+    ${tableHtml({
+      name: "Event logs",
+      empty: "No events match this filter.",
+      columns: [
+        { label: "When", cell: (row) => esc(when(row.created_at)) },
+        {
+          label: "Staff",
+          cell: (row) => `<div class="who"><div><strong>${esc(row.admin_name)}</strong><span>${esc(row.admin_username || "—")}</span></div></div>`,
+        },
+        { label: "Action", cell: (row) => esc(row.action_label || row.action) },
+        { label: "Detail", cell: (row) => esc(row.detail_text || "—") },
+      ],
+      rows: info.rows,
+    })}
+    ${pagerHtml(info, "page")}`;
 }
 
 function privilegeChecks(name, selected) {
@@ -822,6 +930,9 @@ const glyph = {
   gear: '<circle cx="12" cy="12" r="3"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="m4.2 4.2 1.4 1.4"/><path d="m18.4 18.4 1.4 1.4"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="m4.2 19.8 1.4-1.4"/><path d="m18.4 5.6 1.4-1.4"/><path d="M19.4 12a7.4 7.4 0 1 1-2.2-5.2"/>',
   scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="10" height="10" rx="1"/><path d="M7 12h10"/>',
   copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  list: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+  warn: '<path d="M12 3 2 20h20Z"/><path d="M12 9v5"/><path d="M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 10v6"/><path d="M12 7h.01"/>',
 };
 
 function iconButton({ act, id, label, name, tone = "", ticket = "", view = "", src = "", caption = "", gallery = false }) {
@@ -847,7 +958,9 @@ function drawActions(row) {
     images.length ? iconButton({ act: "see-image", id: row.id, gallery: true, src: images[0], caption: row.title, label: images.length > 1 ? "See images" : "See image", name: "image" }) : "",
     iconButton({ act: "edit-draw", id: row.id, label: "Edit", name: "edit" }),
     open ? iconButton({ act: "winner", id: row.id, label: "Pick winner", name: "trophy" }) : "",
-    sold ? "" : iconButton({ act: "delete-draw", id: row.id, label: "Delete", name: "trash", tone: "bad" }),
+    isSuper() && !sold
+      ? iconButton({ act: "delete-draw", id: row.id, label: "Delete", name: "trash", tone: "bad" })
+      : "",
   ]);
 }
 
@@ -1365,6 +1478,54 @@ function emptyOcr() {
   };
 }
 
+/** Bank refs are CAPITAL letters + digits (e.g. FT26305GCDDP). Reject status words like COMPLETED. */
+function normalizeBankTxn(value) {
+  const text = String(value ?? "").trim().toUpperCase().replace(/\s+/g, "");
+  if (!/^[A-Z0-9][A-Z0-9-]{5,63}$/.test(text)) return "";
+  if (!/[A-Z]/.test(text) || !/\d/.test(text)) return "";
+  if (/^(COMPLETED|COMPLETE|SUCCESS|SUCCESSFUL|PENDING|APPROVED|REJECTED|FAILED|TRANSFER|REFERENCE)$/.test(text)) {
+    return "";
+  }
+  return text;
+}
+
+/** Prefer a capital bank reference from the scan response (not OCR internals). */
+function txnFromScanResponse(body, existing) {
+  const kept = normalizeBankTxn(existing);
+  if (kept) return kept;
+
+  const fromFields = [
+    body?.extracted_transaction_id,
+    body?.transaction_id,
+  ].map(normalizeBankTxn).find(Boolean);
+  if (fromFields) return fromFields;
+
+  const raw = String(body?.text || "");
+  if (!raw) return "";
+
+  const cbe = raw.match(/\b(FT[0-9]{5}[A-Z0-9]{4,16})\b/i);
+  if (cbe?.[1]) {
+    const hit = normalizeBankTxn(cbe[1]);
+    if (hit) return hit;
+  }
+
+  const labeled = raw.match(
+    /(?:transaction|txn|ref(?:erence)?|trace)\s*(?:id|no\.?|number)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9-]{6,31})/i,
+  );
+  if (labeled?.[1]) {
+    const hit = normalizeBankTxn(labeled[1]);
+    if (hit) return hit;
+  }
+
+  const mixed = raw.match(/\b([A-Z]{2,5}\d{4,}[A-Z0-9]{2,16})\b/);
+  if (mixed?.[1]) {
+    const hit = normalizeBankTxn(mixed[1]);
+    if (hit) return hit;
+  }
+
+  return "";
+}
+
 function ocrFromPayment(row) {
   const saved = row?.ocr;
   if (!saved?.text) return emptyOcr();
@@ -1429,6 +1590,63 @@ function paymentScanPanel(ocr, hasReceipt, locked = false) {
     </div>`;
 }
 
+function paymentBanks() {
+  const rows = state.modal?.banks || state.banks?.rows || state.board?.options?.banks || [];
+  return rows.map((row) => ({
+    id: String(row.id),
+    name: row.bank_name || row.name || `Bank #${row.id}`,
+  }));
+}
+
+function paymentFillable(row) {
+  return {
+    bank: !String(row.bank_name || "").trim() && !row.bank_account_id,
+    sender: !String(row.sender_account || "").trim(),
+  };
+}
+
+function paymentEditableValue(value, canEdit, label) {
+  const text = String(value || "").trim() || "—";
+  const edit = canEdit
+    ? `<button type="button" class="value-edit" data-act="edit-transfer" aria-label="Fill ${esc(label)}" title="Fill ${esc(label)}">${svg(glyph.edit)}</button>`
+    : "";
+  return `<dd class="value-with-edit"><span>${esc(text)}</span>${edit}</dd>`;
+}
+
+function paymentTransferSheet(row) {
+  if (!state.modal?.transferEdit) return "";
+  const fill = paymentFillable(row);
+  if (!fill.bank && !fill.sender) return "";
+  const banks = paymentBanks();
+  const bankOptions = banks.map((bank) => (
+    `<option value="${esc(bank.id)}">${esc(bank.name)}</option>`
+  )).join("");
+  return `
+    <div class="sheet-backdrop">
+      <form id="transfer-form" class="modal-card transfer-sheet">
+        <button type="button" class="modal-close" data-act="close-transfer" aria-label="Close" title="Close">${svg(glyph.x)}</button>
+        <h2>Fill transfer details</h2>
+        <p class="muted sheet-lead">From the receipt — only empty fields can be set.</p>
+        <p class="sheet-warn" role="status">${svg(glyph.warn)} Once saved, bank and sender cannot be changed.</p>
+        ${fill.bank ? `
+          <label>Bank
+            <select name="bank_account_id">
+              <option value="">Choose bank</option>
+              ${bankOptions}
+            </select>
+          </label>` : ""}
+        ${fill.sender ? `
+          <label>Sender
+            <input name="sender_account" maxlength="40" autocomplete="off" placeholder="Sender account / name">
+          </label>` : ""}
+        <div class="row-actions">
+          <button type="button" class="ghost" data-act="close-transfer">Cancel</button>
+          <button type="submit" class="success">${svg(glyph.check)} Save</button>
+        </div>
+      </form>
+    </div>`;
+}
+
 function paymentModal() {
   const modal = state.modal;
   const row = modal.row;
@@ -1437,6 +1655,7 @@ function paymentModal() {
   const locked = !pending;
   const tab = modal.tab === "scan" ? "scan" : "receipt";
   const ocr = modal.ocr || emptyOcr();
+  const fill = paymentFillable(row);
   return `
     <div class="modal-card wide payment-modal ${locked ? "is-locked" : ""}">
       ${modalClose()}
@@ -1453,19 +1672,21 @@ function paymentModal() {
         <div><dt>Lottery</dt><dd>${esc(row.lottery_title)}</dd></div>
         <div><dt>Tickets</dt><dd>${esc(row.ticket_numbers)}</dd></div>
         <div><dt>Amount</dt><dd>${esc(money(row.amount))}</dd></div>
-        <div><dt>Bank</dt><dd>${esc(row.bank_name || "—")}</dd></div>
-        <div><dt>Sender</dt><dd>${esc(row.sender_account || "—")}</dd></div>
+        <div><dt>Bank</dt>${paymentEditableValue(row.bank_name, fill.bank, "bank")}</div>
+        <div><dt>Sender</dt>${paymentEditableValue(row.sender_account, fill.sender, "sender")}</div>
         <div><dt>Status</dt><dd>${badge(row.status)}</dd></div>
         <div><dt>Date</dt><dd>${esc(when(row.created_at))}</dd></div>
         <div><dt>Reviewed by</dt><dd>${esc(row.reviewed_by_name || "—")}${row.reviewed_at ? ` · ${esc(when(row.reviewed_at))}` : ""}</dd></div>
       </dl>
       <form id="txn-form" class="txn-form" data-id="${esc(row.id)}">
         <label class="txn-field">
-          Transaction ID
+          <span class="field-label">
+            Transaction ID
+            <button type="button" class="hint-q" aria-label="${locked ? "Approve/reject and transaction ID are locked." : "Unique bank reference. Required before approve. Blocks receipt reuse."}" data-tip="${locked ? "Approve/reject and transaction ID are locked." : "Unique bank reference. Required before approve. Blocks receipt reuse."}">?</button>
+          </span>
           <input name="transaction_id" maxlength="64" spellcheck="false" autocomplete="off" placeholder="e.g. FT26305GCDDP" value="${esc(row.transaction_id || "")}" ${locked ? "readonly disabled" : ""}>
         </label>
         <button type="submit" class="ghost action-btn" ${locked ? "disabled" : ""}>${svg(glyph.check)} Save ID</button>
-        <p class="muted txn-hint">${locked ? "This payment is closed. Actions are locked." : "Unique bank reference. Required before approve. Blocks receipt reuse."}</p>
       </form>
       ${src ? `<div class="payment-tabs" role="tablist" aria-label="Payment media">
         <button type="button" class="payment-tab ${tab === "receipt" ? "on" : ""}" role="tab" aria-selected="${tab === "receipt" ? "true" : "false"}" data-act="payment-tab" data-tab="receipt">${svg(glyph.image)} Receipt</button>
@@ -1479,6 +1700,7 @@ function paymentModal() {
           ${paymentScanPanel(ocr, true, locked)}
         </div>
       </div>` : `<div class="payment-pane"><p class="muted">No receipt was uploaded.</p></div>`}
+      ${paymentTransferSheet(row)}
     </div>`;
 }
 
@@ -1533,14 +1755,13 @@ function winnerModal() {
 }
 
 function showModalError(error) {
+  const message = error.message || "Something went wrong";
   const el = document.querySelector("#modal-error");
-  if (!el) {
-    state.error = error.message || "Something went wrong";
-    render();
-    return;
+  if (el) {
+    el.hidden = false;
+    el.textContent = message;
   }
-  el.hidden = false;
-  el.textContent = error.message || "Something went wrong";
+  notify(message, "error");
 }
 
 function caught(error) {
@@ -1552,8 +1773,7 @@ function caught(error) {
     state.report.progress = null;
     state.report.loading = false;
   }
-  state.error = error.message || "Something went wrong";
-  render();
+  notify(error.message || "Something went wrong", "error");
 }
 
 async function refresh() {
@@ -1630,7 +1850,7 @@ async function refresh() {
     if (!list.res.ok || list.body.success === false) throw new Error(messageOf(list.body, "Could not load lotteries"));
     state.report.lotteries = (list.body.data || []).map((row) => ({ id: String(row.id), title: row.title }));
     if (state.report.from && state.report.to && asNairobi(state.report.from) > asNairobi(state.report.to)) {
-      state.error = "The start is after the end";
+      notify("The start is after the end", "warning");
       state.report.rows = [];
       state.report.columns = [];
       state.report.amount = null;
@@ -1659,6 +1879,24 @@ async function refresh() {
     if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load admin accounts"));
     state.admins.rows = body.data || [];
     state.admins.privileges = body.privileges || [];
+    return;
+  }
+  if (state.view === "logs") {
+    if (!hasPriv("logs")) throw new Error("Not allowed for this account");
+    const params = new URLSearchParams({
+      search: state.logs.search,
+      action: state.logs.status,
+      page: String(state.logs.page),
+      page_size: String(state.logs.pageSize),
+    });
+    const { res, body } = await request(`/api/admin-event-logs?${params}`);
+    if (seq !== loadSeq) return;
+    unauthorized(res);
+    if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not load event logs"));
+    state.logs.rows = body.data || [];
+    state.logs.total = Number(body.total || 0);
+    state.logs.actions = body.actions || [];
+    if (body.page) state.logs.page = body.page;
     return;
   }
   if (state.view === "settings") {
@@ -1725,14 +1963,30 @@ function lotteryPhotos(row) {
 
 async function onClick(event) {
   if (event.target.classList.contains("backdrop")) return;
+  if (event.target.classList.contains("sheet-backdrop")) {
+    if (state.modal?.kind === "payment") {
+      state.modal.transferEdit = false;
+      render();
+    }
+    return;
+  }
   const el = event.target.closest("[data-act]");
   if (!el || el.disabled) return;
   const act = el.dataset.act;
   const id = el.dataset.id;
   try {
     if (act === "close-modal") {
+      if (state.modal?.kind === "payment" && state.modal.transferEdit) {
+        state.modal.transferEdit = false;
+        render();
+        return;
+      }
       closeModal();
       render();
+      return;
+    }
+    if (act === "dismiss-toast") {
+      dismissToast(Number(id));
       return;
     }
     if (act === "menu") {
@@ -1821,7 +2075,21 @@ async function onClick(event) {
       const next = Number(el.dataset.page);
       if (!bag || next < 1) return;
       bag.page = next;
-      if (act === "page" && state.view === "payments") await refresh();
+      if (act === "page" && (state.view === "payments" || state.view === "logs")) await refresh();
+      render();
+      return;
+    }
+    if (act === "clear-logs") {
+      if (!isSuper()) {
+        notify("Super admin only", "error");
+        return;
+      }
+      state.modal = {
+        kind: "confirm",
+        act: "clear-logs",
+        title: "Clear event logs",
+        message: "Delete all event log rows? A single clear entry will be kept.",
+      };
       render();
       return;
     }
@@ -1836,7 +2104,7 @@ async function onClick(event) {
         state.report.status = document.getElementById("report-status").value;
       }
       if (state.report.from && state.report.to && asNairobi(state.report.from) > asNairobi(state.report.to)) {
-        state.error = "The start is after the end";
+        notify("The start is after the end", "warning");
         render();
         return;
       }
@@ -1889,7 +2157,7 @@ async function onClick(event) {
       URL.revokeObjectURL(link.href);
       state.report.progress = null;
       state.error = "";
-      state.notice = "Report downloaded";
+      notify("Report downloaded", "success");
       render();
       return;
     }
@@ -1935,6 +2203,10 @@ async function onClick(event) {
       return;
     }
     if (act === "delete-draw") {
+      if (!isSuper()) {
+        notify("Super admin only", "error");
+        return;
+      }
       state.modal = {
         kind: "confirm",
         act: "delete-draw",
@@ -1987,7 +2259,30 @@ async function onClick(event) {
         row,
         tab: ocr.text ? "scan" : "receipt",
         ocr,
+        banks: state.modal?.banks || state.banks?.rows || [],
+        transferEdit: false,
       };
+      render();
+      return;
+    }
+    if (act === "edit-transfer") {
+      if (state.modal?.kind !== "payment" || !state.modal.row) return;
+      const fill = paymentFillable(state.modal.row);
+      if (!fill.bank && !fill.sender) return;
+      state.modal.transferEdit = true;
+      render();
+      if (!(state.modal.banks || []).length) {
+        const banks = await request("/api/bank-accounts");
+        if (state.modal?.kind === "payment" && banks.res.ok && banks.body.success !== false) {
+          state.modal.banks = banks.body.data || [];
+          render();
+        }
+      }
+      return;
+    }
+    if (act === "close-transfer") {
+      if (state.modal?.kind !== "payment") return;
+      state.modal.transferEdit = false;
       render();
       return;
     }
@@ -2032,7 +2327,20 @@ async function onClick(event) {
           error: "",
           notice: "",
         };
-        const txn = body.transaction_id || state.modal.row.transaction_id || "";
+        let txn = txnFromScanResponse(body, state.modal.row.transaction_id);
+        const savedRaw = String(body.transaction_id || "").trim().toUpperCase();
+        const needsSave = Boolean(txn) && normalizeBankTxn(savedRaw) !== txn && !body.transaction_conflict;
+        if (needsSave) {
+          const saved = await request("/api/set-transaction-id", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ payment_id: paymentRow.id, transaction_id: txn }),
+          });
+          unauthorized(saved.res);
+          if (saved.res.ok && saved.body.success !== false) {
+            txn = normalizeBankTxn(saved.body.transaction_id) || txn;
+          }
+        }
         state.modal.row = {
           ...state.modal.row,
           transaction_id: txn,
@@ -2054,15 +2362,15 @@ async function onClick(event) {
           listRow.scanned_by_name = state.modal.row.scanned_by_name;
         }
         if (body.transaction_conflict) {
-          state.error = `Transaction ID from scan is already used on payment #${body.transaction_conflict}. Enter a different ID.`;
-        } else if (body.extracted_transaction_id && txn) {
-          state.notice = `Transaction ID saved: ${txn}`;
+          notify(`Transaction ID from scan is already used on payment #${body.transaction_conflict}. Enter a different ID.`, "error");
+        } else if (txn) {
+          notify(`Transaction ID ${needsSave ? "saved" : "filled"}: ${txn}`, "success");
         }
       } catch (error) {
         if (error.unauthorized) {
           state.admin = null;
           state.modal = null;
-          state.error = "Sign in again";
+          notify("Sign in again", "error");
           render();
           return;
         }
@@ -2091,7 +2399,7 @@ async function onClick(event) {
         }, 1600);
       } catch {
         if (state.modal?.ocr) state.modal.ocr.notice = "";
-        state.error = "Could not copy text";
+        notify("Could not copy text", "error");
         render();
       }
       return;
@@ -2107,14 +2415,14 @@ async function onClick(event) {
         state.modal.row = { ...state.modal.row, ocr: null };
         const listRow = state.payments.rows.find((item) => String(item.id) === String(paymentId));
         if (listRow) listRow.ocr = null;
-        state.notice = "Scan cleared";
+        notify("Scan cleared", "success");
       } catch (error) {
         if (error.unauthorized) {
           state.admin = null;
           state.modal = null;
-          state.error = "Sign in again";
+          notify("Sign in again", "error");
         } else {
-          state.error = error.message || "Could not clear scan";
+          notify(error.message || "Could not clear scan", "error");
         }
       }
       render();
@@ -2125,7 +2433,7 @@ async function onClick(event) {
         || (state.modal?.kind === "payment" ? state.modal.row : null);
       if (!row || row.status !== "pending") return;
       if (act === "approve" && !String(row?.transaction_id || "").trim()) {
-        state.error = "Enter and save the bank transaction ID before approving";
+        notify("Enter and save the bank transaction ID before approving", "warning");
         if (state.modal?.kind === "payment") render();
         else {
           state.modal = { kind: "payment", row, tab: "receipt", ocr: ocrFromPayment(row) };
@@ -2219,7 +2527,7 @@ async function onClick(event) {
       link.remove();
       URL.revokeObjectURL(link.href);
       state.error = "";
-      state.notice = "Customers downloaded";
+      notify("Customers downloaded", "success");
       render();
       return;
     }
@@ -2256,10 +2564,10 @@ function onInput(event) {
   const bag = state[state.view];
   bag.search = event.target.value;
   bag.page = 1;
-  if (state.view === "payments") {
+  if (state.view === "payments" || state.view === "logs") {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
-      if (state.view !== "payments") return;
+      if (state.view !== "payments" && state.view !== "logs") return;
       refresh().then(render).catch(caught);
     }, 250);
     return;
@@ -2292,7 +2600,7 @@ function onChange(event) {
     state.report.page = 1;
     state.error = "";
     if (state.report.from && state.report.to && asNairobi(state.report.from) > asNairobi(state.report.to)) {
-      state.error = "The start is after the end";
+      notify("The start is after the end", "warning");
       state.report.rows = [];
       state.report.columns = [];
       state.report.amount = null;
@@ -2343,7 +2651,7 @@ function onChange(event) {
       state.board.preset = "custom";
       state.board[id] = event.target.value;
       if (state.board.from && state.board.to && asNairobi(state.board.from) > asNairobi(state.board.to)) {
-        state.error = "The start is after the end";
+        notify("The start is after the end", "warning");
         render();
         return;
       }
@@ -2368,7 +2676,7 @@ function onChange(event) {
     bag.pageSize = Number(event.target.value) || 10;
     bag.page = 1;
   } else return;
-  if (state.view === "payments") {
+  if (state.view === "payments" || state.view === "logs") {
     refresh().then(render).catch(caught);
     return;
   }
@@ -2384,7 +2692,7 @@ async function submitLogin(form) {
     body: JSON.stringify({ username: data.username, password: data.password }),
   });
   if (!res.ok || body.success === false) {
-    state.error = messageOf(body, "Invalid username or password");
+    notify(messageOf(body, "Invalid username or password"), "error");
     render();
     return;
   }
@@ -2394,7 +2702,7 @@ async function submitLogin(form) {
   try {
     await refresh();
   } catch (error) {
-    state.error = error.message;
+    notify(error.message || "Something went wrong", "error");
   }
   render();
 }
@@ -2437,7 +2745,7 @@ async function submitDraw(form) {
     const path = state.modal.row?.id ? "/api/admin-update-lottery" : "/api/admin-create-lottery";
     await postOk(path, payload);
     closeModal();
-    state.notice = "Lottery saved";
+    notify("Lottery saved", "success");
     state.error = "";
     await refresh();
     render();
@@ -2467,7 +2775,7 @@ async function submitBank(form) {
       await postOk("/api/admin-create-bank-account", payload);
     }
     state.modal = null;
-    state.notice = "Bank account saved";
+    notify("Bank account saved", "success");
     state.error = "";
     await refresh();
     render();
@@ -2484,32 +2792,35 @@ async function submitConfirm() {
   try {
     if (modal.act === "hide-draw") {
       await postOk("/api/admin-hide-lottery", { id: modal.id, hidden: modal.hidden });
-      state.notice = modal.hidden === "1" ? "Lottery hidden from customers" : "Lottery visible to customers";
+      notify(modal.hidden === "1" ? "Lottery hidden from customers" : "Lottery visible to customers", "success");
     } else if (modal.act === "feature") {
       await postOk("/api/admin-feature-lottery", { id: modal.id });
-      state.notice = "Featured lottery updated";
+      notify("Featured lottery updated", "success");
     } else if (modal.act === "delete-draw") {
       await postOk("/api/admin-delete-lottery", { id: modal.id });
-      state.notice = "Lottery deleted";
+      notify("Lottery deleted", "success");
     } else if (modal.act === "announce") {
       await postOk("/api/announce-winner", {
         lottery_id: modal.lotteryId,
         order_id: modal.orderId,
         winning_ticket_number: modal.ticket,
       });
-      state.notice = "Winner announced";
+      notify("Winner announced", "success");
     } else if (modal.act === "bank-status") {
       await postOk("/api/admin-update-bank-account", modal.payload);
-      state.notice = "Bank account updated";
+      notify("Bank account updated", "success");
     } else if (modal.act === "admin-status") {
       await postOk("/api/admin-staff-update", modal.payload);
-      state.notice = modal.payload.active ? "Admin enabled" : "Admin disabled";
+      notify(modal.payload.active ? "Admin enabled" : "Admin disabled", "success");
+    } else if (modal.act === "clear-logs") {
+      await postOk("/api/admin-event-logs-clear", {});
+      notify("Event logs cleared", "success");
     } else if (modal.act === "approve") {
       await postOk("/api/approve-payment", { payment_id: modal.id });
-      state.notice = "Payment approved";
+      notify("Payment approved", "success");
     } else if (modal.act === "reject") {
       await postOk("/api/reject-payment", { payment_id: modal.id });
-      state.notice = "Payment rejected";
+      notify("Payment rejected", "success");
     }
     state.modal = null;
     state.error = "";
@@ -2535,7 +2846,7 @@ async function submitPassword(form) {
       new_password: data.new_password,
     });
     state.modal = null;
-    state.notice = "Password changed";
+    notify("Password changed", "success");
     state.error = "";
     render();
   } catch (error) {
@@ -2574,7 +2885,7 @@ async function submitAdmin(form) {
         if (data.password) payload.password = data.password;
       }
       await postOk("/api/admin-staff-update", payload);
-      state.notice = "Admin updated";
+      notify("Admin updated", "success");
     } else {
       const privileges = formPrivileges(form);
       if (!privileges.length) throw new Error("Pick at least one privilege");
@@ -2585,7 +2896,7 @@ async function submitAdmin(form) {
         password: data.password,
         privileges,
       });
-      state.notice = "Admin created";
+      notify("Admin created", "success");
     }
     state.modal = null;
     state.error = "";
@@ -2633,7 +2944,7 @@ async function submitSettings(form) {
     const meta = document.querySelector('meta[name="app-name"]');
     if (meta) meta.content = appName;
     document.title = appName;
-    state.notice = "Settings saved";
+    notify("Settings saved", "success");
     state.error = "";
     render();
   } catch (error) {
@@ -2664,17 +2975,64 @@ async function submitTxn(form) {
     state.modal.row = { ...state.modal.row, transaction_id: txn };
     const listRow = state.payments.rows.find((item) => String(item.id) === String(state.modal.row.id));
     if (listRow) listRow.transaction_id = txn;
-    state.notice = `Transaction ID saved: ${txn}`;
+    notify(`Transaction ID saved: ${txn}`, "success");
     state.error = "";
     render();
   } catch (error) {
     if (error.unauthorized) {
       state.admin = null;
       state.modal = null;
-      state.error = "Sign in again";
+      notify("Sign in again", "error");
       render();
     } else {
-      state.error = error.message || "Could not save transaction ID";
+      notify(error.message || "Could not save transaction ID", "error");
+      render();
+    }
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function submitTransfer(form) {
+  if (state.modal?.kind !== "payment" || !state.modal.row) return;
+  const data = Object.fromEntries(new FormData(form));
+  const button = form.querySelector("[type=submit]");
+  button.disabled = true;
+  try {
+    const payload = { payment_id: state.modal.row.id };
+    if (data.bank_account_id) payload.bank_account_id = Number(data.bank_account_id);
+    if (data.sender_account != null) payload.sender_account = data.sender_account;
+    const { res, body } = await request("/api/set-payment-transfer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    unauthorized(res);
+    if (!res.ok || body.success === false) throw new Error(messageOf(body, "Could not save payment details"));
+    state.modal.row = {
+      ...state.modal.row,
+      bank_account_id: body.bank_account_id,
+      bank_name: body.bank_name || state.modal.row.bank_name || "",
+      sender_account: body.sender_account || "",
+    };
+    const listRow = state.payments.rows.find((item) => String(item.id) === String(state.modal.row.id));
+    if (listRow) {
+      listRow.bank_account_id = state.modal.row.bank_account_id;
+      listRow.bank_name = state.modal.row.bank_name;
+      listRow.sender_account = state.modal.row.sender_account;
+    }
+    if (state.modal) state.modal.transferEdit = false;
+    notify("Payment bank/sender saved", "success");
+    state.error = "";
+    render();
+  } catch (error) {
+    if (error.unauthorized) {
+      state.admin = null;
+      state.modal = null;
+      notify("Sign in again", "error");
+      render();
+    } else {
+      notify(error.message || "Could not save payment details", "error");
       render();
     }
   } finally {
@@ -2694,6 +3052,7 @@ function onSubmit(event) {
   else if (formId === "settings-form") submitSettings(event.target);
   else if (formId === "admin-form") submitAdmin(event.target);
   else if (formId === "txn-form") submitTxn(event.target);
+  else if (formId === "transfer-form") submitTransfer(event.target);
 }
 
 document.addEventListener("click", (event) => { onClick(event); });
@@ -2720,7 +3079,7 @@ async function followHash() {
   try {
     await refresh();
   } catch (error) {
-    state.error = error.message || "Could not load staff data";
+    notify(error.message || "Could not load staff data", "error");
   }
   render();
 }
@@ -2735,7 +3094,7 @@ async function boot() {
     try {
       await refresh();
     } catch (error) {
-      state.error = error.message || "Could not load staff data";
+      notify(error.message || "Could not load staff data", "error");
     }
   } else {
     state.view = view;

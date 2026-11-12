@@ -4,7 +4,7 @@ import { Router } from "express";
 import { clearCookieOptions, cookieOptions } from "../../config/security.js";
 import { clockPayload } from "../../config/time.js";
 import { lotteryImageDir, receiptDir } from "../../config/paths.js";
-import { requirePrivilege, requireStaff as staff } from "../../middleware/auth.js";
+import { requirePrivilege, requireStaff as staff, requireSuper } from "../../middleware/auth.js";
 import { wrap } from "../../middleware/error-handler.js";
 import { siteLimiter } from "../../middleware/rate-limit.js";
 import { idOf } from "../../middleware/validate.js";
@@ -30,6 +30,7 @@ import {
   customerProfile,
   telegramClientId,
 } from "../telegram/service.js";
+import { logEvent } from "../audit/service.js";
 import { approveOrder, createStoreOrder, rejectOrder } from "../orders/service.js";
 import { getAdminSettings, updateAdminSettings } from "../settings/service.js";
 import { invalidateBuyerBundle, publishBuyerBundle } from "./buyer-bundle.js";
@@ -229,6 +230,9 @@ router.post("/admin-settings", ...settings, siteLimiter(20), wrap(async (req, re
   const bag = await updateAdminSettings(req.body || {});
   invalidateBuyerBundle();
   publishBuyerBundle();
+  await logEvent(req.admin.id, "update_settings", {
+    app_name: bag?.branding?.app_name || "",
+  });
   res.json({ success: true, ...bag });
 }));
 
@@ -303,6 +307,7 @@ router.post("/admin-create-lottery", ...lot, wrap(async (req, res) => {
     ? storedImages(req.body.image_urls)
     : storedImages(req.body?.image_url ? [req.body.image_url] : []);
   await saveLotteryImages(id, images);
+  await logEvent(req.admin.id, "create_lottery", { lotteryId: id, title: req.body?.title || "" });
   res.json({ success: true });
 }));
 
@@ -312,13 +317,15 @@ router.post("/admin-update-lottery", ...lot, wrap(async (req, res) => {
   await updateLottery(id, lotteryBody(req.body));
   if (Array.isArray(req.body?.image_urls)) await saveLotteryImages(id, storedImages(req.body.image_urls));
   else if (req.body?.image_url) await saveLotteryImages(id, storedImages([req.body.image_url]));
+  await logEvent(req.admin.id, "update_lottery", { lotteryId: id, title: req.body?.title || "" });
   res.json({ success: true });
 }));
 
-router.post("/admin-delete-lottery", ...lot, wrap(async (req, res) => {
+router.post("/admin-delete-lottery", staff, requireSuper, wrap(async (req, res) => {
   const id = idOf(req.body?.id);
   if (!id) throw httpError(404, "Lottery not found");
   await deleteLottery(id);
+  await logEvent(req.admin.id, "delete_lottery", { lotteryId: id });
   res.json({ success: true });
 }));
 
@@ -326,6 +333,7 @@ router.post("/admin-feature-lottery", ...lot, wrap(async (req, res) => {
   const id = idOf(req.body?.id);
   if (!id) throw httpError(404, "Lottery not found");
   await featureLottery(id);
+  await logEvent(req.admin.id, "feature_lottery", { lotteryId: id });
   res.json({ success: true });
 }));
 
@@ -351,6 +359,7 @@ router.post("/admin-hide-lottery", ...lot, wrap(async (req, res) => {
   if (!id) throw httpError(404, "Lottery not found");
   const hidden = req.body?.hidden === true || req.body?.hidden === 1 || req.body?.hidden === "1";
   await setLotteryHidden(id, hidden);
+  await logEvent(req.admin.id, "hide_lottery", { lotteryId: id, hidden });
   res.json({ success: true });
 }));
 
@@ -369,6 +378,10 @@ router.post("/admin-create-bank-account", ...banks, wrap(async (req, res) => {
     accountNumber: req.body?.account_number,
   });
   if (req.body?.status === "inactive") await setBankActive(id, false);
+  await logEvent(req.admin.id, "create_bank", {
+    bankId: id,
+    bank_name: req.body?.bank_name || "",
+  });
   res.json({ success: true });
 }));
 
@@ -380,6 +393,11 @@ router.post("/admin-update-bank-account", ...banks, wrap(async (req, res) => {
     accountName: req.body?.account_name,
     accountNumber: req.body?.account_number,
     status: req.body?.status,
+  });
+  await logEvent(req.admin.id, "update_bank", {
+    bankId: id,
+    bank_name: req.body?.bank_name || "",
+    status: req.body?.status || "",
   });
   res.json({ success: true });
 }));

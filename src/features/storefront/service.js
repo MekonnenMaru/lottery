@@ -164,6 +164,7 @@ function paymentDto(row) {
     status: paymentStatus(row.status),
     screenshot_url: row.receipt_path ? `/api/receipt-files/${row.receipt_path}` : "",
     created_at: iso(row.created_at),
+    bank_account_id: row.bank_account_id == null ? null : Number(row.bank_account_id),
     bank_name: row.bank_name || "",
     sender_account: row.sender_account || "",
     transaction_id: row.transaction_id || "",

@@ -1,3 +1,4 @@
+import { logEvent } from "../audit/service.js";
 import { PRIVILEGES, createStaff, listStaff, updateStaff } from "./service.js";
 
 export async function options(req, res) {
@@ -16,6 +17,11 @@ export async function create(req, res) {
     password: req.body?.password,
     privileges: req.body?.privileges,
   });
+  await logEvent(req.admin.id, "create_admin", {
+    adminId: admin.id,
+    username: admin.username,
+    name: admin.name,
+  });
   res.json({ success: true, admin });
 }
 
@@ -27,6 +33,11 @@ export async function update(req, res) {
     privileges: req.body?.privileges,
     active: req.body?.active,
     password: req.body?.password,
+  });
+  await logEvent(req.admin.id, "update_admin", {
+    adminId: admin?.id,
+    username: admin?.username,
+    active: admin?.active,
   });
   res.json({ success: true, admin });
 }
