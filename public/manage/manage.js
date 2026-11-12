@@ -906,6 +906,50 @@ function svg(paths) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
 
+function spinGlyph() {
+  return `<svg class="spin" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.5" opacity="0.28"></circle><path d="M21 12a9 9 0 0 0-9-9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"></path></svg>`;
+}
+
+function setDrawSaving(next) {
+  if (state.modal?.kind === "draw") state.modal.saving = next || null;
+  const box = document.querySelector("#draw-saving");
+  const button = document.querySelector("#draw-form [type=submit]");
+  const form = document.querySelector("#draw-form");
+  if (form) {
+    form.querySelectorAll("input, select, button").forEach((el) => {
+      if (el.type === "submit") return;
+      el.disabled = Boolean(next);
+    });
+  }
+  if (!box || !button) return;
+  if (!next) {
+    box.hidden = true;
+    button.disabled = false;
+    button.innerHTML = "Save";
+    return;
+  }
+  box.hidden = false;
+  const label = box.querySelector(".draw-saving-label");
+  const pct = box.querySelector(".draw-saving-pct");
+  const meter = box.querySelector(".report-bar");
+  const bar = box.querySelector(".report-bar > span");
+  if (label) label.textContent = next.label || "Saving…";
+  if (pct) pct.textContent = next.percent == null ? "" : `${next.percent}%`;
+  if (meter && bar) {
+    if (next.percent == null) {
+      bar.classList.add("indeterminate");
+      bar.style.width = "";
+      meter.removeAttribute("aria-valuenow");
+    } else {
+      bar.classList.remove("indeterminate");
+      bar.style.width = `${next.percent}%`;
+      meter.setAttribute("aria-valuenow", String(next.percent));
+    }
+  }
+  button.disabled = true;
+  button.innerHTML = `${spinGlyph()} ${esc(next.label || "Saving…")}`;
+}
+
 const glyph = {
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
   star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
@@ -1375,9 +1419,18 @@ function drawForm() {
       <label>Images <input name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple></label>
       <p class="muted">Add up to 8. The first image is the cover shown on the home page.</p>
       ${drawPhotos()}
+      <div id="draw-saving" class="draw-saving" role="status" aria-live="polite" ${state.modal.saving ? "" : "hidden"}>
+        <div class="report-progress-row">
+          <span class="draw-saving-label">${esc(state.modal.saving?.label || "Saving…")}</span>
+          <span class="draw-saving-pct">${state.modal.saving?.percent == null ? "" : `${state.modal.saving.percent}%`}</span>
+        </div>
+        <div class="report-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" ${state.modal.saving?.percent == null ? "" : `aria-valuenow="${state.modal.saving.percent}"`}>
+          <span class="${state.modal.saving?.percent == null ? "indeterminate" : ""}" style="${state.modal.saving?.percent == null ? "" : `width:${state.modal.saving.percent}%`}"></span>
+        </div>
+      </div>
       <p id="modal-error" class="alert" ${state.modal.warning ? "" : "hidden"}>${esc(state.modal.warning || "")}</p>
       <div class="modal-actions">
-        <button class="primary" type="submit">Save</button>
+        <button class="primary" type="submit" ${state.modal.saving ? "disabled" : ""}>${state.modal.saving ? `${spinGlyph()} ${esc(state.modal.saving.label || "Saving…")}` : "Save"}</button>
       </div>
     </form>`;
 }
@@ -1980,6 +2033,7 @@ async function onClick(event) {
   const id = el.dataset.id;
   try {
     if (act === "close-modal") {
+      if (state.modal?.kind === "draw" && state.modal.saving) return;
       if (state.modal?.kind === "payment" && state.modal.transferEdit) {
         state.modal.transferEdit = false;
         render();
@@ -2712,10 +2766,15 @@ async function submitLogin(form) {
 }
 
 async function submitDraw(form) {
+  if (state.modal?.saving) return;
   const data = Object.fromEntries(new FormData(form));
-  const button = form.querySelector("[type=submit]");
-  button.disabled = true;
+  const photos = state.modal?.photos || [];
+  const uploads = photos.filter((photo) => photo.file);
   try {
+    setDrawSaving({
+      label: uploads.length ? `Uploading images 0/${uploads.length}…` : "Saving lottery…",
+      percent: uploads.length ? 0 : null,
+    });
     const payload = {
       title: data.title,
       subtitle: data.subtitle,
@@ -2728,8 +2787,13 @@ async function submitDraw(form) {
       hidden: data.hidden === "1",
       image_urls: [],
     };
-    for (const photo of state.modal.photos || []) {
+    let done = 0;
+    for (const photo of photos) {
       if (photo.file) {
+        setDrawSaving({
+          label: `Uploading image ${done + 1}/${uploads.length}…`,
+          percent: Math.round((done / uploads.length) * 90),
+        });
         const body = new FormData();
         body.append("image", photo.file);
         const uploaded = await request("/api/upload-lottery-image", { method: "POST", body });
@@ -2738,6 +2802,11 @@ async function submitDraw(form) {
           throw new Error(messageOf(uploaded.body, "Image upload failed"));
         }
         payload.image_urls.push(uploaded.body.image_url);
+        done += 1;
+        setDrawSaving({
+          label: `Uploaded ${done}/${uploads.length}`,
+          percent: Math.round((done / uploads.length) * 90),
+        });
       } else if (photo.src && !photo.src.startsWith("blob:")) {
         payload.image_urls.push(photo.src);
       }
@@ -2746,18 +2815,19 @@ async function submitDraw(form) {
       payload.id = state.modal.row.id;
       payload.status = data.status;
     }
+    setDrawSaving({ label: "Saving lottery…", percent: uploads.length ? 95 : null });
     const path = state.modal.row?.id ? "/api/admin-update-lottery" : "/api/admin-create-lottery";
     await postOk(path, payload);
+    setDrawSaving({ label: "Saved", percent: 100 });
     closeModal();
     notify("Lottery saved", "success");
     state.error = "";
     await refresh();
     render();
   } catch (error) {
+    setDrawSaving(null);
     if (error.unauthorized) caught(error);
     else showModalError(error);
-  } finally {
-    button.disabled = false;
   }
 }
 

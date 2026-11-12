@@ -1088,6 +1088,21 @@ button.tile-cover { cursor: pointer; }
   overflow: auto;
 }
 
+.draw-saving {
+  margin: 4px 0 0;
+}
+
+.draw-saving .report-progress-row {
+  margin-bottom: 6px;
+}
+
+.modal-actions button .spin {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;
