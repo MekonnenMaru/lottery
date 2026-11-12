@@ -233,14 +233,18 @@ function appBase() {
 }
 
 function safeSrc(url) {
-  const value = String(url || "");
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (value.startsWith("blob:") || value.startsWith("data:")) return value;
   if (value.startsWith("https://images.pexels.com/")) return value;
   const base = appBase();
   // Split "/api" so embed path rewriting does not break this check.
   const receipt = "/" + "api/receipt-files/";
-  if (value.startsWith("uploads/")) return `${base}/${value}`;
-  if (value.startsWith(receipt)) return `${base}${value}`;
+  if (base && value.startsWith(`${base}/uploads/`)) return value;
   if (base && value.startsWith(`${base}${receipt}`)) return value;
+  if (value.startsWith("/uploads/")) return `${base}${value}`;
+  if (value.startsWith(receipt)) return `${base}${value}`;
+  if (value.startsWith("uploads/")) return `${base}/${value}`;
   return "";
 }
 

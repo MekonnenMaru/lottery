@@ -27,8 +27,11 @@ export function rewritePublicPaths(body, basePath = LOTTERY_BASE_PATH) {
   const esc = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   text = text.replace(new RegExp(`(["'\`])${esc}/api`, 'g'), `$1${base}/api`);
   text = text.replace(/(["'`])\/api/g, `$1${base}/api`);
+  // Buyer bundle asset bases (d5/v5/h5/_5) — empty means site root; under /lottery they must be prefixed.
+  text = text.replace(/\b([dvh_])5=""/g, `$15="${base}"`);
+  text = text.replace(new RegExp(`\\b([dvh_])5="${esc}"`, 'g'), `$15="${base}"`);
   text = text.replace(/(href|src|content)=(["'])\/(?!\/)/g, `$1=$2${base}/`);
-  text = text.replace(/url\(\//g, `url(${base}/`);
+  text = text.replace(/url\(\/(?!\/)/g, `url(${base}/`);
   text = text.replaceAll(`${base}${base}/`, `${base}/`);
   return text;
 }

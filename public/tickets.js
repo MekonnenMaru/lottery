@@ -193,11 +193,21 @@ function page() {
   return input ? input.closest(".space-y-6") : null;
 }
 
+function ticketBase() {
+  const path = String(location.pathname || "");
+  if (path === "/lottery" || path.startsWith("/lottery/")) return "/lottery";
+  const match = path.match(/^(.*)\/tickets(?:\/|$)/);
+  return match ? match[1] : "";
+}
+
 function picture(url) {
-  const value = String(url || "");
+  const value = String(url || "").trim();
   if (!value) return "";
-  if (value.startsWith("http") || value.startsWith("/")) return value;
-  return `/${value.replace(/^\/+/, "")}`;
+  if (value.startsWith("http") || value.startsWith("blob:") || value.startsWith("data:")) return value;
+  const base = ticketBase();
+  if (base && value.startsWith(`${base}/`)) return value;
+  if (value.startsWith("/")) return base ? `${base}${value}` : value;
+  return `${base}/${value.replace(/^\/+/, "")}`;
 }
 
 function when(value) {
