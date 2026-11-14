@@ -49,6 +49,9 @@ const state = {
   admin: null,
   view: viewFromHash(),
   menuOpen: false,
+  navMini: (() => {
+    try { return localStorage.getItem("staff-nav-mini") === "1"; } catch { return false; }
+  })(),
   theme: (() => {
     try { return localStorage.getItem("staff-theme") === "light" ? "light" : "dark"; } catch { return "dark"; }
   })(),
@@ -285,6 +288,9 @@ function when(value) {
     day: "numeric",
     month: "short",
     year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
   });
 }
 
@@ -351,6 +357,10 @@ function restoreFocus(saved) {
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
   try { localStorage.setItem("staff-theme", state.theme); } catch { /* private browsing */ }
+}
+
+function applyNavMini() {
+  try { localStorage.setItem("staff-nav-mini", state.navMini ? "1" : "0"); } catch { /* private browsing */ }
 }
 
 applyTheme();
@@ -446,23 +456,26 @@ function shell() {
   const menuMark = state.menuOpen
     ? '<path d="M6 6 18 18"/><path d="M18 6 6 18"/>'
     : '<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>';
+  const mini = state.navMini;
+  const miniLabel = mini ? "Expand menu" : "Minimize menu";
   return `
-    <div class="shell">
+    <div class="shell ${mini ? "nav-mini" : ""}">
       ${state.menuOpen ? '<button type="button" class="scrim" data-act="menu" aria-label="Close menu"></button>' : ""}
-      <aside class="side ${state.menuOpen ? "open" : ""}">
+      <aside class="side ${state.menuOpen ? "open" : ""} ${mini ? "mini" : ""}">
         <div class="brand">
-          <strong>${esc(appName)}</strong>
+          <strong title="${esc(appName)}">${esc(appName)}</strong>
+          <button type="button" class="icon-btn nav-mini-toggle" data-act="nav-mini" aria-label="${esc(miniLabel)}" title="${esc(miniLabel)}" aria-pressed="${mini ? "true" : "false"}">${svg(mini ? glyph.chevR : glyph.chevL)}</button>
         </div>
         <nav aria-label="Menu">
           ${views.map(([id, label, count, icon]) => `
-            <button type="button" data-act="nav" data-view="${id}" class="${state.view === id ? "on" : ""}" ${state.view === id ? 'aria-current="page"' : ""}>
-              <span class="nav-label">${svg(glyph[icon])}<span>${esc(label)}</span></span>
+            <button type="button" data-act="nav" data-view="${id}" class="${state.view === id ? "on" : ""}" ${state.view === id ? 'aria-current="page"' : ""} title="${esc(label)}" aria-label="${esc(label)}">
+              <span class="nav-label">${svg(glyph[icon])}<span class="nav-text">${esc(label)}</span></span>
               ${count ? `<span class="count">${esc(count)}</span>` : ""}
             </button>`).join("")}
         </nav>
         <div class="side-foot">
           <div class="foot-id">
-            <span class="foot-circle" aria-hidden="true">${esc(String(state.admin.name || state.admin.username || "?").slice(0, 1).toUpperCase())}</span>
+            <span class="foot-circle" aria-hidden="true" title="${esc(state.admin.name || state.admin.username)}">${esc(String(state.admin.name || state.admin.username || "?").slice(0, 1).toUpperCase())}</span>
             <span class="foot-role" title="${esc(state.admin.username)}">${esc(state.admin.name || state.admin.username)} · ${esc(roleLabel)}</span>
             <button type="button" class="icon-btn" data-act="password" aria-label="Password" title="Password">${svg(glyph.key)}</button>
           </div>
@@ -2250,6 +2263,12 @@ async function onClick(event) {
     }
     if (act === "menu") {
       state.menuOpen = !state.menuOpen;
+      render();
+      return;
+    }
+    if (act === "nav-mini") {
+      state.navMini = !state.navMini;
+      applyNavMini();
       render();
       return;
     }
